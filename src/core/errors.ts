@@ -18,8 +18,8 @@ export type InvalidPath = {
   path: string;
 };
 
-/** What a `too_large` limit applies to; `limit` is in bytes, files or characters accordingly. */
-export type TooLargeSubject = "file" | "publish" | "file_count" | "label";
+/** What a `too_large` byte limit applies to: one file or the whole publish. */
+export type TooLargeSubject = "file" | "publish";
 
 export type TooLarge = {
   code: "too_large";
@@ -29,7 +29,15 @@ export type TooLarge = {
   path?: string;
 };
 
-export type ArtifactError = VersionConflict | NotFound | InvalidPath | TooLarge;
+/** A well-formed but unacceptable value (count, length, id); `limit` when a bound applies. */
+export type InvalidInput = {
+  code: "invalid_input";
+  message: string;
+  field: string;
+  limit?: number;
+};
+
+export type ArtifactError = VersionConflict | NotFound | InvalidPath | TooLarge | InvalidInput;
 
 export type Result<T, E = ArtifactError> = { ok: true; value: T } | { ok: false; error: E };
 
@@ -58,14 +66,19 @@ export function invalidPath(path: string, reason: string): InvalidPath {
 }
 
 export function tooLarge(subject: TooLargeSubject, limit: number, path?: string): TooLarge {
-  const unit = subject === "file_count" ? "files" : subject === "label" ? "characters" : "bytes";
-  const what = path === undefined ? subject.replace("_", " ") : `file ${JSON.stringify(path)}`;
+  const what = path === undefined ? subject : `file ${JSON.stringify(path)}`;
   const error: TooLarge = {
     code: "too_large",
-    message: `${what} exceeds the limit of ${limit} ${unit}`,
+    message: `${what} exceeds the limit of ${limit} bytes`,
     subject,
     limit,
   };
   if (path !== undefined) error.path = path;
+  return error;
+}
+
+export function invalidInput(field: string, message: string, limit?: number): InvalidInput {
+  const error: InvalidInput = { code: "invalid_input", message, field };
+  if (limit !== undefined) error.limit = limit;
   return error;
 }
