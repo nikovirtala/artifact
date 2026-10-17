@@ -451,6 +451,64 @@ describe("ArtifactService.readFile", () => {
   });
 });
 
+describe("ArtifactService.readServed", () => {
+  it("reads www/ files of the current or a pinned committed version", async () => {
+    const { service } = harness();
+    const { id } = unwrap(
+      await service.publish({ files: { "index.html": "<body>one</body>", "a/b.css": "x{}" } }),
+    );
+    unwrap(await service.publish({ id, files: { "index.html": "<body>two</body>" } }));
+
+    const current = unwrap(await service.readServed(id, { path: "index.html" }));
+    assert.equal(current.version, 2);
+    assert.equal(current.contentType, "text/html; charset=utf-8");
+    assert.equal(text(current.body), `<body>two${reloadScriptTag(2)}</body>`);
+    const pinned = unwrap(
+      await service.readServed(id.toUpperCase(), { path: "index.html", version: 1 }),
+    );
+    assert.equal(text(pinned.body), `<body>one${reloadScriptTag(1)}</body>`);
+    assert.deepEqual(unwrap(await service.readServed(id, { path: "./a//b.css", version: 1 })), {
+      id,
+      version: 1,
+      path: "a/b.css",
+      contentType: "text/css; charset=utf-8",
+      body: new TextEncoder().encode("x{}"),
+    });
+
+    const missing = await service.readServed(id, { path: "a/b.css" });
+    assert.equal(!missing.ok && missing.error.code, "not_found");
+    const noExt = await service.readServed(id, { path: "a" });
+    assert.equal(!noExt.ok && noExt.error.code, "not_found");
+    const bad = await service.readServed(id, { path: "../x.html" });
+    assert.equal(!bad.ok && bad.error.code, "invalid_path");
+    const noVersion = await service.readServed(id, { path: "index.html", version: 3 });
+    assert.equal(!noVersion.ok && noVersion.error.code, "not_found");
+    const badId = await service.readServed("nope", { path: "index.html" });
+    assert.equal(!badId.ok && badId.error.code, "invalid_input");
+    const unknown = await service.readServed("0000000000000000000000000z", { path: "index.html" });
+    assert.equal(!unknown.ok && unknown.error.code, "not_found");
+  });
+
+  it("never serves an orphan version", async () => {
+    const store = createMemoryStore();
+    let crash = false;
+    const pointers: PointerStore = {
+      ...store,
+      write: async (key, body, condition) => {
+        if (crash) throw new Error("simulated crash");
+        return store.write(key, body, condition);
+      },
+    };
+    const { service } = harness({ blobs: store, pointers });
+    const { id } = unwrap(await service.publish({ files: { "index.html": "v1" } }));
+    crash = true;
+    await assert.rejects(service.publish({ id, files: { "index.html": "orphan" } }));
+    assert.ok(await store.get(`artifacts/${id}/v/2/www/index.html`));
+    const orphan = await service.readServed(id, { path: "index.html", version: 2 });
+    assert.equal(!orphan.ok && orphan.error.code, "not_found");
+  });
+});
+
 describe("ArtifactService.rollback", () => {
   it("moves only the pointer, emits a published event, and later publishes still increase", async () => {
     const { service, store, notifier } = harness();
