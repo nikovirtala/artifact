@@ -1,9 +1,10 @@
 // The Hono app: guards, then dispatch by Host (docs/decisions/0024, 0027).
 //   <id>.localhost  → subdomain viewing only
-//   localhost etc.  → path-mode viewing under /a/<id>/
+//   localhost etc.  → /api, and path-mode viewing under /a/<id>/
 import { Hono } from "hono";
 import type { ArtifactService } from "../core/artifact-service.ts";
 import { isArtifactId } from "../core/paths.ts";
+import { createApi } from "./api.ts";
 import { httpError, jsonError } from "./errors.ts";
 import { type AppEnv, hostGuard, isApiPath, traversalGuard } from "./guards.ts";
 import { plainText } from "./headers.ts";
@@ -50,6 +51,8 @@ export function createApp(deps: AppDeps): Hono<AppEnv> {
       { id: host.id, base: "", segments: url.pathname.slice(1).split("/"), search: url.search },
     );
   });
+
+  app.route("/api", createApi(deps));
 
   // Path mode, mounted in every isolation mode: /a/<id>/…
   app.get("/a/*", (c) => {
