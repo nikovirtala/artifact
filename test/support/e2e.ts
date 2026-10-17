@@ -34,10 +34,14 @@ export async function freePort(): Promise<number> {
 
 export type Served = { child: ChildProcess; stderr: () => string; exited: Promise<number | null> };
 
-/** Start `serve` and wait for its "serving" line. */
-export async function serve(port: number, root: string): Promise<Served> {
+/** Start `serve` and wait for its "serving" line; `extraEnv` overrides the cleared env. */
+export async function serve(
+  port: number,
+  root: string,
+  extraEnv: Record<string, string> = {},
+): Promise<Served> {
   const child = spawn(process.execPath, [main, "serve", "--port", String(port), "--root", root], {
-    env,
+    env: { ...env, ...extraEnv },
   });
   children.push(child);
   let stdout = "";
