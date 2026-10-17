@@ -37,7 +37,7 @@ Options:
   -h, --help                  Show this help
 
 Environment:
-  ARTIFACT_TOKEN              If set, /api requires "Authorization: Bearer <token>"
+  ARTIFACT_TOKEN              If set, /api and /mcp require "Authorization: Bearer <token>"
 `;
 
 /** `localhost`, `::1` or any 127.0.0.0/8 address. */
@@ -124,7 +124,7 @@ export function resolveServeConfig(
       };
     }
     warnings.push(
-      `artifact: warning: listening on non-loopback address ${host}; /api requires ARTIFACT_TOKEN, but artifact pages and the gallery are readable by anyone who can reach it`,
+      `artifact: warning: listening on non-loopback address ${host}; /api and /mcp require ARTIFACT_TOKEN, but artifact pages and the gallery are readable by anyone who can reach it`,
     );
   }
 

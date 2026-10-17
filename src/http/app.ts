@@ -1,14 +1,23 @@
 // The Hono app: guards, then dispatch by Host (docs/decisions/0024, 0027).
 //   any host        → platform routes under /__artifact/ (live reload, docs/decisions/0028)
 //   <id>.localhost  → subdomain viewing only
-//   localhost etc.  → /api, the gallery at /, and path-mode viewing under /a/<id>/
+//   localhost etc.  → /api, /mcp (docs/decisions/0033), the gallery at /, and path-mode viewing
+//                     under /a/<id>/
 import { Hono } from "hono";
 import type { ArtifactService } from "../core/artifact-service.ts";
 import { isArtifactId } from "../core/paths.ts";
+import { createMcpHandler } from "../mcp/server.ts";
 import { createApi } from "./api.ts";
 import { httpError, jsonError } from "./errors.ts";
 import { renderGallery } from "./gallery.ts";
-import { type AppEnv, hostGuard, isApiPath, traversalGuard } from "./guards.ts";
+import {
+  type AppEnv,
+  hostGuard,
+  isApiPath,
+  originGuard,
+  tokenGuard,
+  traversalGuard,
+} from "./guards.ts";
 import { GALLERY_CSP, plainText, securityHeaders } from "./headers.ts";
 import { reloadClient } from "./reload.ts";
 import { type ArtifactEvents, eventStream } from "./sse.ts";
@@ -20,14 +29,17 @@ export type AppConfig = {
   isolation: Isolation;
   /** Exact `Content-Security-Policy` for artifact pages; none when unset. */
   csp?: string;
-  /** Bearer token required on /api when set. */
+  /** Bearer token required on /api and /mcp when set. */
   token?: string;
+  /** Accept `file_path` in the MCP publish tool (default true; off where there is no local disk). */
+  allowFilePath?: boolean;
   /** Interval between SSE heartbeat comments; default 20 s (tests inject a short one). */
   heartbeatMs?: number;
 };
 
 export type AppDeps = { service: ArtifactService; events: ArtifactEvents; config: AppConfig };
 
+const MCP_PATH = "/mcp";
 const VIEW_METHODS: ReadonlySet<string> = new Set(["GET", "HEAD"]);
 
 export function createApp(deps: AppDeps): Hono<AppEnv> {
@@ -37,7 +49,7 @@ export function createApp(deps: AppDeps): Hono<AppEnv> {
 
   app.onError((error, c) => {
     console.error(error);
-    return isApiPath(c.req.path)
+    return isApiPath(c.req.path) || c.req.path === MCP_PATH
       ? jsonError(httpError("internal", "internal server error"))
       : plainText(500, "internal server error\n", csp);
   });
@@ -77,6 +89,11 @@ export function createApp(deps: AppDeps): Hono<AppEnv> {
   });
 
   app.route("/api", createApi(deps));
+
+  // MCP behind the same Origin and token guards as /api (docs/decisions/0027).
+  const mcp = createMcpHandler({ service, config });
+  app.use(MCP_PATH, originGuard(config.port), tokenGuard(config.token));
+  app.all(MCP_PATH, (c) => mcp(c.req.raw));
 
   app.get("/", async () => {
     const list = await service.list();

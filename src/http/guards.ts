@@ -1,5 +1,5 @@
 // Request guards (docs/decisions/0027), applied in order: Host and traversal on every route,
-// then Origin and bearer token on /api.
+// then Origin and bearer token on /api and /mcp.
 import { createHash, timingSafeEqual } from "node:crypto";
 import type { HttpBindings } from "@hono/node-server";
 import type { Context, MiddlewareHandler } from "hono";
