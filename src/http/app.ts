@@ -1,14 +1,15 @@
 // The Hono app: guards, then dispatch by Host (docs/decisions/0024, 0027).
 //   <id>.localhost  → subdomain viewing only
-//   localhost etc.  → /api, and path-mode viewing under /a/<id>/
+//   localhost etc.  → /api, the gallery at /, and path-mode viewing under /a/<id>/
 import { Hono } from "hono";
 import type { ArtifactService } from "../core/artifact-service.ts";
 import { isArtifactId } from "../core/paths.ts";
 import { createApi } from "./api.ts";
 import { httpError, jsonError } from "./errors.ts";
+import { renderGallery } from "./gallery.ts";
 import { type AppEnv, hostGuard, isApiPath, traversalGuard } from "./guards.ts";
-import { plainText } from "./headers.ts";
-import type { Isolation } from "./urls.ts";
+import { GALLERY_CSP, plainText, securityHeaders } from "./headers.ts";
+import { artifactUrl, type Isolation } from "./urls.ts";
 import { notFound, redirect, serveArtifact } from "./viewing.ts";
 
 export type AppConfig = {
@@ -53,6 +54,19 @@ export function createApp(deps: AppDeps): Hono<AppEnv> {
   });
 
   app.route("/api", createApi(deps));
+
+  app.get("/", async () => {
+    const list = await service.list();
+    if (!list.ok) throw new Error(list.error.message);
+    const html = renderGallery(list.value, (id) => artifactUrl(id, config));
+    return new Response(html, {
+      headers: {
+        ...securityHeaders(GALLERY_CSP),
+        "Content-Type": "text/html; charset=utf-8",
+        "Cache-Control": "no-store",
+      },
+    });
+  });
 
   // Path mode, mounted in every isolation mode: /a/<id>/…
   app.get("/a/*", (c) => {
