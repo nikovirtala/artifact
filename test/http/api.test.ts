@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import { createMemoryNotifier } from "../../src/adapters/memory-notifier.ts";
 import { type AppConfig, createApp } from "../../src/http/app.ts";
 import { harness } from "../support/fakes.ts";
 
@@ -11,6 +12,7 @@ function setup(config: Partial<AppConfig> = {}) {
   const h = harness();
   const app = createApp({
     service: h.service,
+    events: createMemoryNotifier(),
     config: { port: PORT, isolation: "subdomain", ...config },
   });
   const call = (

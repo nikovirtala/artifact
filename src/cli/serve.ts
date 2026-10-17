@@ -53,14 +53,15 @@ export async function runServe(args: readonly string[], env: Env): Promise<numbe
   process.on("SIGTERM", onSignal);
 
   const store = createFsStore({ root: config.root });
+  const notifier = createMemoryNotifier();
   const service = new ArtifactService({
     blobs: store,
     pointers: store,
-    notifier: createMemoryNotifier(),
+    notifier,
     clock: systemClock,
     ids: createUlidIdGen(),
   });
-  const app = createApp({ service, config });
+  const app = createApp({ service, events: notifier, config });
 
   let listening: Listening;
   try {

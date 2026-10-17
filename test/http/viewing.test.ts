@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import { createMemoryNotifier } from "../../src/adapters/memory-notifier.ts";
 import { createMemoryStore } from "../../src/adapters/memory-store.ts";
 import { reloadScriptTag } from "../../src/core/inject.ts";
 import type { PointerStore } from "../../src/core/ports.ts";
@@ -22,7 +23,11 @@ async function setup(config: Partial<AppConfig> = {}, h = harness()) {
     }),
   );
   unwrap(await service.publish({ id, files: { "index.html": "<body>two</body>" } }));
-  const app = createApp({ service, config: { port: PORT, isolation: "subdomain", ...config } });
+  const app = createApp({
+    service,
+    events: createMemoryNotifier(),
+    config: { port: PORT, isolation: "subdomain", ...config },
+  });
   const sub = (path: string, init?: RequestInit) =>
     app.request(`http://${id}.localhost:${PORT}${path}`, init);
   const main = (path: string, init?: RequestInit) =>
