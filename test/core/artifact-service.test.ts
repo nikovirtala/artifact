@@ -311,6 +311,11 @@ describe("ArtifactService validation", () => {
     );
   });
 
+  it("rejects reserved path prefixes without writing anything", async () => {
+    const error = await rejected({ "index.html": "x", "v/1/index.html": "y" });
+    assert.deepEqual(error && error.code === "invalid_path" && error.path, "v/1/index.html");
+  });
+
   it("caps files per publish at 255", async () => {
     const files: Record<string, string> = { "index.html": "x" };
     for (let i = 0; i < 254; i++) files[`f${i}.txt`] = "";
