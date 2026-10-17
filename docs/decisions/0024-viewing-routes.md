@@ -12,3 +12,5 @@ Status: Accepted (M2)
 - **Static read.** Viewing reads `www/` through `ArtifactService.readServed(id, {version?, path})`: pointer, committed-version check, path normalisation, one blob read, content type from the extension allowlist. No manifest read, so serving maps to S3 + CloudFront later.
 - **Reserved publish paths.** A published file whose first segment is `v` or `__artifact` (case-insensitive) is rejected with 422 `invalid_path`, since those URLs are taken by pinned versions and the platform. The rule lives in `core/paths.ts`.
 - **Traversal.** The raw request target is checked before routing (0027). `..`, `.`, encoded `%2e%2e`, encoded `/` or `\`, control characters, and undecodable escapes → 400.
+
+Update (M3): `/__artifact/reload.js` and `/__artifact/events?id=<id>` are served at the root of every allowed host, before Host dispatch ([0031](0031-reload-client.md), [0028](0028-sse-handshake-and-reconnect.md)). Any other `/__artifact/…` path, and `__artifact` below an artifact root or a pinned version, stays 404.

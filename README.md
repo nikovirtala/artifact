@@ -2,7 +2,7 @@
 
 Local server that hosts HTML artifacts at stable URLs, keeps every publish as an immutable version, and live-reloads open tabs when an agent republishes. See [docs/00-plan.md](docs/00-plan.md) for the spec and [docs/decisions/](docs/decisions/) for decision records.
 
-**Status: M2 (HTTP serving + JSON API).** `artifact serve` serves artifacts, a gallery and the JSON API. Live reload (M3), MCP (M4) and the client CLI commands (M5) are not done yet.
+**Status: M3 (live reload).** `artifact serve` serves artifacts, a gallery and the JSON API, and open tabs reload when an artifact is republished. MCP (M4) and the client CLI commands (M5) are not done yet.
 
 ## Serve
 
@@ -37,9 +37,15 @@ The API routes are in the spec ("HTTP: JSON API"). The details are in ADRs [0021
 
 Notes:
 
-- **CSP.** A custom `--csp` must allow `'self'` scripts (`script-src 'self'`). Otherwise live reload, which arrives in M3, cannot load `/__artifact/reload.js`.
+- **CSP.** A custom `--csp` must allow `'self'` scripts and connections (`script-src 'self'; connect-src 'self'`, or `default-src 'self'`). Otherwise live reload cannot load `/__artifact/reload.js` or open its event stream.
 - **Safari.** Safari resolves `http://<id>.localhost:4400/` without `/etc/hosts` entries ([0010](docs/decisions/0010-safari-localhost.md)). If `*.localhost` does not resolve somewhere, use `http://localhost:4400/a/<id>/`, or start with `--isolation path`.
 - **Path mode shares one origin.** Pages under `/a/<id>/` share storage (localStorage, cookies) with each other and can call `/api` on the same origin. Set `ARTIFACT_TOKEN` if that matters. Subdomain pages cannot call the API.
+
+## Live reload
+
+A tab open on the current URL reloads within a second of a publish or rollback to that id. Pinned `/v/<n>/` tabs never reload. If the artifact is deleted, open tabs show a small "This artifact was deleted." banner instead.
+
+How it works: each served HTML page carries `<script src="/__artifact/reload.js" data-version="<n>" defer>`, added at publish time. On current-version pages the script opens `EventSource('/__artifact/events?id=<id>')`. The server sends the current version on every connect, then a `published` event on each publish or rollback, and the page reloads when the version differs from its own. A tab that missed a publish (server restart, dropped connection) therefore catches up when it reconnects. See ADRs [0028](docs/decisions/0028-sse-handshake-and-reconnect.md)–[0032](docs/decisions/0032-events-unknown-id.md).
 
 ## Development
 
