@@ -17,4 +17,6 @@ Node does not strip types inside `node_modules`, so the package must ship JS. `t
 
 ## Consequences
 
-From M3 on, a build without `reload-client.js` would mean a broken package. The M5 `pnpm pack` e2e check catches that. Once the file exists, the copy step could be made strict.
+From M3 on, a build without `reload-client.js` would mean a broken package. The M5 `pnpm pack` e2e check catches that.
+
+Update (M2): M3, which adds `reload-client.js`, also makes the copy strict: the build fails if a listed asset is missing.

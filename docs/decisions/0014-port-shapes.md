@@ -17,6 +17,15 @@ The core must run unchanged on local disk now and on S3 (or DynamoDB for the poi
 - Erasable syntax only: string-literal unions, no enums, namespaces or parameter properties.
 - `src/index.ts` now exports the service, error and port types, and the local adapters (as foreseen in 0006).
 
+## Update (M2)
+
+- New error `invalid_input` (`field`, `limit?`) for values that are well-formed but unacceptable. HTTP maps it to 422 (0023).
+- A label over 60 characters (`field: "label"`) and more than 255 files (`field: "files"`) are now `invalid_input`, not `too_large`.
+- `too_large` is for bytes only; `subject` narrows to `file` | `publish`.
+- Malformed ids are `invalid_input` with `field: "id"` and a message pointing to `artifact_list`. Uppercase ids are lowercased before lookup. Unknown well-formed ids stay `not_found`.
+- `list` validates its `limit` (integer 1..500, else `invalid_input` `field: "limit"`) and returns a `Result`.
+- `src/index.ts` exports nothing; the package is CLI-only in v1 (0006).
+
 ## Consequences
 
 The S3 adapter maps 412 to `precondition_failed` and runs the same contract suite (`test/contract/blob-store.contract.ts`). Keys that S3 allows but a filesystem cannot hold (`a` and `a/b` at the same time) never occur in the layout, and the contract does not test them.

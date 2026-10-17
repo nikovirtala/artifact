@@ -26,3 +26,9 @@ Following that order literally has a race. Two publishers that both read `latest
 - After a crash or a lost race, version numbers can skip (for example 1, 3). The spec says "monotonic", not "contiguous".
 - `meta.json` grows by one small entry per version. At local scale and with retention unlimited (0013), this is negligible.
 - Deviation from the spec text: the extra `versions` field in `meta.json`, and `src/index.html` written create-only as the claim.
+
+## Update (M2)
+
+- When the retries run out, the `version_conflict` message says so: `version conflict: gave up after <N> attempts due to concurrent publishes (current version is <c>); retry the same request without if_version`. In M4 the `artifact_publish` tool description gives the same advice.
+- `delete` stays pointer-first. The M5 orphan sweep must also remove `artifacts/<id>/` folders that have no `meta.json` (left by a crash during delete or before a first commit), skipping folders modified in the last few minutes so it never races a publish in progress.
+- M3: consider a `deleted` SSE event so open tabs learn that their artifact is gone.

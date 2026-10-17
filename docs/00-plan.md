@@ -31,16 +31,16 @@ An artifact is an id plus an ordered list of immutable versions and one pointer 
 | Concept | Definition |
 | --- | --- |
 | Artifact id | 26-char lowercase ULID (Crockford base32). Lowercase so it is valid as a DNS label for `<id>.localhost` origins. |
-| Version | Monotonic integer from 1. Immutable once written. |
-| Pointer | `meta.json` holding `currentVersion` and an `etag`. The only mutable object per artifact. |
+| Version | Integer from 1, strictly increasing per artifact. Immutable once written. Gaps are expected (a lost race or a crash leaves an uncommitted number behind). |
+| Pointer | `meta.json` holding `currentVersion`, `title`, `createdAt`, `updatedAt` and the committed `versions: [{version, createdAt, label?}]`. The only mutable object per artifact. Its etag is store-derived (content hash locally, the S3 ETag on AWS), not stored in the file. |
 | Entry page | `index.html` at the version root. Required. |
 | Supporting files | Any other relative paths in the same version (css, js, json, images, fonts). |
-| Label | Optional short name for a publish (≤ 60 chars), stored in the manifest. |
+| Label | Optional short name for a publish (≤ 60 chars), stored in the manifest and in `meta.json` `versions`. |
 
 Key layout, identical on local disk and in S3 (local root defaults to `~/.artifacts/`):
 
 ```
-artifacts/<id>/meta.json                      # pointer + title, createdAt, updatedAt
+artifacts/<id>/meta.json                      # pointer: currentVersion, title, createdAt, updatedAt, versions[{version, createdAt, label?}]
 artifacts/<id>/v/<n>/manifest.json            # files[{path, size, sha256, contentType}], label, createdAt
 artifacts/<id>/v/<n>/src/<path>               # files exactly as published (returned by read)
 artifacts/<id>/v/<n>/www/<path>               # served tree: html with the reload snippet injected, other files copied
@@ -48,10 +48,10 @@ artifacts/<id>/v/<n>/www/<path>               # served tree: html with the reloa
 
 Rules:
 
-- Writes go `src/` → `www/` → `manifest.json` → pointer. A crash before the pointer move leaves an orphaned version that is never served; a sweep can remove it later.
-- The pointer update is a compare-and-swap on `etag` (local: write to temp file + rename under a per-id lock; S3: `If-Match` conditional `PutObject`). A mismatch returns `version_conflict` with the current version.
+- Writes go `src/index.html` (create-only; it claims the version number) → rest of `src/` → `www/` → `manifest.json` → pointer. A crash before the pointer move leaves an orphaned version that is never served; a sweep can remove it later.
+- The pointer update is a compare-and-swap on the store-derived etag (local: write to temp file + rename under a per-id lock; S3: `If-Match` conditional `PutObject`). A mismatch returns `version_conflict` with the current version.
 - The reload snippet is injected at publish time into `www/`, not at serve time. This keeps serving a dumb static read, which maps directly to S3 + CloudFront later.
-- Version numbers are allocated from the pointer read at publish start; the conditional pointer write is what guarantees no two publishes claim the same number. Use `If-None-Match: *` semantics when creating `v/<n>/manifest.json`.
+- Version numbers are allocated from the pointer read at publish start. The create-only `src/index.html` claims the number, and the conditional pointer write commits it, so no two publishes share a number. Use `If-None-Match: *` semantics when creating `v/<n>/src/index.html` and `v/<n>/manifest.json`. See [0015](decisions/0015-publish-protocol-and-conflicts.md).
 
 ## Architecture
 
@@ -65,29 +65,31 @@ A publish from either entry point writes a new version, moves the pointer, then 
 
 Three entry points share one core service: the HTTP server (viewing + JSON API), the MCP endpoint (agents), and a CLI (humans and scripts). The CLI and MCP never touch storage directly; they call the core or the JSON API.
 
-**HTTP: viewing** (default port 4400, bound to 127.0.0.1)
+**HTTP: viewing** (default port 4400, bound to 127.0.0.1 and ::1; see [0024](decisions/0024-viewing-routes.md))
 
 | Route | Returns |
 | --- | --- |
 | `GET http://<id>.localhost:4400/` | Current version's `www/index.html` (subdomain mode, default) |
 | `GET http://<id>.localhost:4400/<path>` | Supporting file from current version's `www/` |
 | `GET http://<id>.localhost:4400/v/<n>/…` | Pinned version; reload snippet stays inert |
-| `GET http://localhost:4400/a/<id>/…` | Same as above in path mode (fallback when `*.localhost` does not resolve) |
+| `GET http://localhost:4400/a/<id>/…` | Same as above in path mode, including `/a/<id>/v/<n>/…`; always mounted (fallback when `*.localhost` does not resolve) |
 | `GET /__artifact/reload.js` | The reload client script |
 | `GET /__artifact/events?id=<id>` | SSE stream for one artifact |
-| `GET http://localhost:4400/` | Gallery: artifacts newest first, title, version, updated |
+| `GET http://localhost:4400/` | Gallery: artifacts newest first, title, version, updated, link ([0012](decisions/0012-gallery-in-v1.md)) |
 
 **HTTP: JSON API** (`/api`, same port)
 
 | Method + path | Body / headers | Result |
 | --- | --- | --- |
-| `GET /api/artifacts` | `?limit=` | List of `{id, title, currentVersion, updatedAt, url}` |
-| `GET /api/artifacts/:id` | — | Meta + version list |
+| `GET /api/artifacts` | `?limit=` (1..500, default 50) | `{artifacts: [{id, title?, currentVersion, updatedAt, url}]}` |
+| `GET /api/artifacts/:id` | — | Meta + version list + `url`; `ETag: "<currentVersion>"` |
 | `GET /api/artifacts/:id/files/*` | `?version=` | One `src/` file |
-| `POST /api/artifacts` | `{title?, label?, files: {path: base64 or utf8}}` | 201 `{id, version: 1, url}` |
-| `PUT /api/artifacts/:id` | same body, optional `If-Match: <version>` | 200 `{id, version, url}` or 409 `version_conflict` |
-| `POST /api/artifacts/:id/rollback` | `{version}` | Pointer moved; emits a publish event |
+| `POST /api/artifacts` | `{title?, label?, files: {path: "<utf8>" or {"base64": "<data>"}}}` | 201 `{id, version: 1, url}`; `ETag` |
+| `PUT /api/artifacts/:id` | same body + optional `if_version`; optional `If-Match: 3` or `"3"` | 200 `{id, version, url}` + `ETag`, or 409 `version_conflict` |
+| `POST /api/artifacts/:id/rollback` | `{version}` | 200 `{id, version, url}` + `ETag`; pointer moved; emits a publish event |
 | `DELETE /api/artifacts/:id` | — | 204; removes all versions |
+
+Errors are `{"error": "<code>", "message": "…", …}`: 400 `bad_request` (malformed request, bad `If-Match` or query, URL traversal), 404 `not_found`, 409 `version_conflict` (`currentVersion`), 413 `too_large` (bytes only), 422 `invalid_request` (schema, bad base64), `invalid_path` (`path`) or `invalid_input` (`field`, `limit`). See [0021](decisions/0021-api-file-encoding.md)–[0023](decisions/0023-http-errors-and-list-limit.md).
 
 **MCP tools** (Streamable HTTP at `/mcp`; connect Claude Code with `claude mcp add --transport http artifacts http://localhost:4400/mcp`)
 
@@ -107,7 +109,7 @@ One executable does both jobs. `artifact serve` runs the server; every other com
 
 | Command | Role | Does |
 | --- | --- | --- |
-| `artifact serve [--port 4400] [--root ~/.artifacts] [--isolation subdomain or path]` | server | Viewing routes, `/api`, `/mcp`, SSE |
+| `artifact serve [--port 4400] [--root ~/.artifacts] [--host] [--isolation subdomain or path] [--csp]` | server | Viewing routes, `/api`, `/mcp`, SSE. Env: `ARTIFACT_PORT`, `ARTIFACT_CSP`, `ARTIFACT_TOKEN` |
 | `artifact publish <file or dir> [--id] [--title] [--label]` | client | Creates or updates; prints the URL |
 | `artifact list`, `artifact read <id> [--version]`, `artifact open <id>` | client | Inspect; `open` launches the browser |
 | `artifact rollback <id> <version>`, `artifact rm <id>` | client | Move the pointer; delete |
@@ -128,12 +130,12 @@ Node.js 24 runs the TypeScript sources directly through native type stripping; T
 | Tests | `node:test` + `node:assert`, `fast-check` (dev) | No test runner dependency; property tests for paths and versioning |
 | Lint/format | Biome (dev) | One tool, fast |
 
-`tsconfig.json` essentials: `"module": "nodenext"`, `"target": "esnext"`, `"strict": true`, `"erasableSyntaxOnly": true`, `"verbatimModuleSyntax": true`, `"allowImportingTsExtensions": true`, `"noEmit": true`. No enums, namespaces or parameter properties (Node cannot strip them). Imports use `.ts` extensions.
+`tsconfig.json` essentials: `"module": "nodenext"`, `"target": "esnext"`, `"strict": true`, `"erasableSyntaxOnly": true`, `"verbatimModuleSyntax": true`, `"allowImportingTsExtensions": true`, `"noEmit": true`, `"types": ["node"]`, and `"include": ["src", "test", "scripts"]`. No enums, namespaces or parameter properties (Node cannot strip them). Imports use `.ts` extensions.
 
 **Packaging.** Node.js does not strip types from files inside `node_modules`, so the published package must ship JavaScript. Development keeps running `.ts` directly; only the package is built.
 
 - `tsconfig.build.json` extends the base config, drops `noEmit` and `allowImportingTsExtensions`, sets `"outDir": "dist"`, `"declaration": true` and `"rewriteRelativeImportExtensions": true` so `.ts` imports become `.js`.
-- `package.json`: `"name": "@nikovirtala/artifact"`, `"bin": {"artifact": "dist/cli/main.js"}`, `"exports"` pointing at `dist/`, `"files": ["dist", "README.md"]`, `"engines": {"node": ">=24"}`.
+- `package.json`: `"name": "@nikovirtala/artifact"`, `"bin": {"artifact": "dist/cli/main.js"}`, `"exports"` only `./package.json` (CLI-only in v1, [0006](decisions/0006-package-entry.md)), `"license": "MIT"`, `"files": ["dist", "README.md", "LICENSE"]`, `"engines": {"node": ">=24"}`.
 - `reload-client.js` is copied to `dist/http/` by the build script, since `tsc` does not copy non-TS files.
 - `prepublishOnly` runs `check` then `build`.
 
@@ -149,7 +151,7 @@ artifact/
       ports.ts              # BlobStore, PointerStore, Notifier, Clock, IdGen interfaces
       inject.ts             # reload-snippet injection into html
       paths.ts              # path normalisation + validation
-      errors.ts             # typed error results (version_conflict, not_found, invalid_path, too_large)
+      errors.ts             # typed error results (version_conflict, not_found, invalid_path, invalid_input, too_large)
     adapters/
       fs-store.ts           # BlobStore + PointerStore on local disk
       memory-store.ts       # for tests
@@ -162,6 +164,7 @@ artifact/
       server.ts             # tool definitions mounted at /mcp
     cli/
       main.ts
+    schemas.ts              # Zod request schemas shared by http/ and mcp/
     config.ts
   test/
     contract/blob-store.contract.ts   # shared suite every store adapter must pass
@@ -174,14 +177,15 @@ The `core/` folder must not import from `adapters/`, `http/` or `mcp/`. Enforce 
 
 The server only ever listens on loopback, and each artifact gets its own browser origin so pages cannot read each other's storage.
 
-- **Loopback only.** Bind `127.0.0.1` (and `::1`). Never `0.0.0.0` unless a `--host` flag is passed explicitly, and then print a warning.
-- **DNS-rebinding guard.** Reject requests whose `Host` is not `localhost`, `127.0.0.1`, `[::1]` or `<id>.localhost` on the configured port. For `/mcp` and `/api`, also reject a browser `Origin` that is not `http://localhost:<port>` (the MCP spec asks servers to validate `Origin`).
+- **Loopback only.** Bind `127.0.0.1` and `::1` (IPv4-only with a warning if `::1` is unavailable). `--host <addr>` binds exactly that address; a non-loopback one requires `ARTIFACT_TOKEN` (otherwise the server refuses to start) and prints a warning. See [0027](decisions/0027-listeners-host-token-guards.md).
+- **DNS-rebinding guard.** Reject (403) requests whose `Host` is not `localhost`, `127.0.0.1`, `[::1]` or `<id>.localhost` (valid ULID id) on the configured port. For `/mcp` and `/api`, also reject a browser `Origin` that is not `http://localhost:<port>`, `http://127.0.0.1:<port>` or `http://[::1]:<port>`; `<id>.localhost` origins are rejected so artifact pages cannot call the API (the MCP spec asks servers to validate `Origin`).
 - **Origin per artifact.** Default `isolation: subdomain` serves each artifact from `http://<id>.localhost:<port>`, so localStorage, IndexedDB and cookies are per artifact. Path mode shares one origin and is a documented fallback only.
-- **Optional token.** If `ARTIFACT_TOKEN` is set, `/api` and `/mcp` require `Authorization: Bearer <token>`. Viewing routes stay open on loopback.
-- **Path safety.** Normalise every file path; reject absolute paths, `..` segments, backslashes, NUL, and anything that resolves outside the version directory. Max 255 files per publish.
-- **Size limits.** 16 MB per file, 64 MB per publish. Return `too_large` with the limit.
-- **Content types.** Derive from extension against an allowlist (html, css, js, mjs, json, svg, png, jpg, gif, webp, avif, ico, woff, woff2, txt, md, csv, pdf, mp4, webm). Send `X-Content-Type-Options: nosniff`.
-- **Headers on artifact pages.** `Referrer-Policy: no-referrer`, `Cross-Origin-Opener-Policy: same-origin`. No restrictive CSP by default, since artifacts may load from CDNs; make CSP a config option.
+- **Optional token.** If `ARTIFACT_TOKEN` is set, `/api` and `/mcp` require `Authorization: Bearer <token>` (constant-time compare). Viewing routes stay open on loopback.
+- **One server per root.** `serve` holds `<root>/.lock` (`{pid, port, startedAt}`); a live holder makes a second `serve` exit non-zero, a dead one is taken over. See [0026](decisions/0026-single-server-lockfile.md).
+- **Path safety.** Normalise every file path; reject absolute paths, `..` segments, backslashes, NUL, and anything that resolves outside the version directory; the first segments `v` and `__artifact` are reserved. Max 255 files per publish (`invalid_input`).
+- **Size limits.** 16 MB per file, 64 MB per publish. Return `too_large` with the limit; `too_large` is for bytes only, while file counts and label length return `invalid_input`.
+- **Content types.** Derive from extension against an allowlist (html, htm, css, js, mjs, json, svg, png, jpg, jpeg, gif, webp, avif, ico, woff, woff2, txt, md, csv, pdf, mp4, webm). Send `X-Content-Type-Options: nosniff`.
+- **Headers on artifact pages.** `Referrer-Policy: no-referrer`, `Cross-Origin-Opener-Policy: same-origin`. No restrictive CSP by default, since artifacts may load from CDNs; `--csp`/`ARTIFACT_CSP` sets one. The gallery gets `default-src 'none'; style-src 'unsafe-inline'`. See [0025](decisions/0025-security-headers-and-csp.md).
 - **Delete is explicit.** `artifact_delete` requires `confirm: true`; the tool description tells the agent to call it only when the user asks.
 
 ## Build plan
@@ -199,22 +203,25 @@ Seven milestones (M0–M6), each shippable and verified before the next starts. 
    - [ ] Injection adds exactly one `<script src="/__artifact/reload.js" defer>` before `</body>` (or at end if absent); `src/` stays byte-identical.
 3. **M2 — HTTP serving + API.** Hono app with viewing routes (both isolation modes), JSON API, gallery, security headers, Host/Origin guard.
    - [ ] `curl` on the current URL returns the latest version; `/v/<n>/` returns that version.
-   - [ ] Traversal attempts (`../`, encoded `%2e%2e`) return 400.
+   - [ ] Traversal attempts (`../`, encoded `%2e%2e`, `%2f`) return 400.
    - [ ] A request with `Host: evil.example` returns 403.
 4. **M3 — Live reload.** SSE endpoint, in-process notifier, `reload-client.js`.
    - [ ] A tab open on the current URL reloads within 1 s of a publish or rollback.
    - [ ] A pinned `/v/<n>/` tab never reloads.
    - [ ] After the server restarts or the connection drops, the client reconnects and reloads if it missed a publish (it sends `Last-Event-ID` = its version; the server replies with the current version immediately).
    - [ ] Heartbeat comment every 20 s; no leaked listeners after 1,000 connect/disconnect cycles.
+   - Notes: consider a `deleted` event so open tabs learn their artifact is gone ([0015](decisions/0015-publish-protocol-and-conflicts.md)); make the `reload-client.js` copy in the build strict ([0005](decisions/0005-build-and-assets.md)).
 5. **M4 — MCP.** Five tools at `/mcp`, stateless Streamable HTTP, Zod schemas shared with the API.
    - [ ] From Claude Code: "make an HTML page …" creates an artifact and returns its URL.
    - [ ] "Change the heading" in the same session republishes to the same id; the open tab reloads.
    - [ ] In a new session, the agent finds the artifact via `artifact_list` and updates it instead of creating a duplicate.
+   - Notes: the `artifact_publish` description says that a conflict after exhausted retries means "retry the same request without `if_version`"; the `artifact_read` description tells agents to edit the HTML returned by `artifact_read`, not the served page (which carries the injected reload tag).
 6. **M5 — CLI + polish.** CLI commands, rollback, delete, labels, orphan sweep on startup, npm packaging, README with the npx quick start and the Claude Code setup line.
    - [ ] Every CLI command has an e2e test against a temp root.
    - [ ] README quick start works from a clean clone in under 2 minutes.
    - [ ] `pnpm pack` tarball installed into a temp directory passes the e2e suite (catches anything still pointing at `.ts`).
    - [ ] `npx @nikovirtala/artifact serve` starts the server from the tarball with no other setup.
+   - Note: the orphan sweep also removes `artifacts/<id>/` folders without `meta.json`, skipping folders modified in the last few minutes ([0015](decisions/0015-publish-protocol-and-conflicts.md)).
 7. **M6 — AWS adapters (later).** See AWS migration path.
 
 ### How live reload works
@@ -273,11 +280,11 @@ Build the artifact server described in this spec, milestone by milestone (M0 →
 - Do not build M6 (AWS) or anything listed under non-goals.
 ```
 
-Open questions to settle before or during M2:
+Open questions to settle before or during M2 (all resolved in M2):
 
-- [ ] npm name: publish as `@nikovirtala/artifact` unless the unscoped `artifact` is free; the CLI is `artifact` either way.
-- [ ] Default port: 4400 OK?
-- [ ] Safari: confirm `*.localhost` resolves without `/etc/hosts` entries; if not, auto-fall back to path mode for Safari or document the hosts entry.
-- [ ] Require `ARTIFACT_TOKEN` by default, or keep loopback-only as the sole guard?
-- [ ] Should the gallery page be in v1, or is `artifact list` enough?
-- [ ] Retention: keep all versions forever locally, or cap at N per artifact?
+- [x] npm name: `@nikovirtala/artifact` ([0008](decisions/0008-npm-name.md)).
+- [x] Default port: 4400, override with `--port` / `ARTIFACT_PORT`, never auto-picked ([0009](decisions/0009-default-port.md)).
+- [x] Safari: path-mode routes always mounted, `--isolation path` for path-style URLs, no `User-Agent` switch unless the manual Safari check fails ([0010](decisions/0010-safari-localhost.md)).
+- [x] `ARTIFACT_TOKEN`: optional on loopback, required for a non-loopback `--host` ([0011](decisions/0011-artifact-token-default.md)).
+- [x] Gallery: minimal read-only page in v1 ([0012](decisions/0012-gallery-in-v1.md)).
+- [x] Retention: keep all versions; maybe an explicit `artifact prune` later ([0013](decisions/0013-version-retention.md)).
