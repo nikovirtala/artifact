@@ -95,8 +95,11 @@ describe("content types", () => {
     assert.equal(contentTypeFor("m.mjs"), "text/javascript; charset=utf-8");
     assert.equal(contentTypeFor("f.woff2"), "font/woff2");
     assert.equal(contentTypeFor("p.jpg"), "image/jpeg");
+    assert.equal(contentTypeFor("p.JPEG"), "image/jpeg");
+    assert.equal(contentTypeFor("old.htm"), "text/html; charset=utf-8");
     for (const ext of [
       "html",
+      "htm",
       "css",
       "js",
       "mjs",
@@ -104,6 +107,7 @@ describe("content types", () => {
       "svg",
       "png",
       "jpg",
+      "jpeg",
       "gif",
       "webp",
       "avif",
@@ -122,7 +126,7 @@ describe("content types", () => {
   });
 
   it("rejects disallowed or missing extensions as invalid_path", () => {
-    for (const input of ["run.sh", "a.exe", "README", ".html", "x.htm", "x.jpeg", "x.toString"]) {
+    for (const input of ["run.sh", "a.exe", "README", ".html", "x.toString", "x.jpe"]) {
       const result = validateFilePath(input);
       assert.equal(result.ok, false, input);
       if (!result.ok) assert.equal(result.error.code, "invalid_path");

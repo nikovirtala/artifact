@@ -20,6 +20,7 @@ export const ENTRY_PAGE = "index.html";
 
 const contentTypes: Readonly<Record<string, string>> = {
   html: "text/html; charset=utf-8",
+  htm: "text/html; charset=utf-8",
   css: "text/css; charset=utf-8",
   js: "text/javascript; charset=utf-8",
   mjs: "text/javascript; charset=utf-8",
@@ -27,6 +28,7 @@ const contentTypes: Readonly<Record<string, string>> = {
   svg: "image/svg+xml",
   png: "image/png",
   jpg: "image/jpeg",
+  jpeg: "image/jpeg",
   gif: "image/gif",
   webp: "image/webp",
   avif: "image/avif",
