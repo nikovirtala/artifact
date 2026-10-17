@@ -1,0 +1,283 @@
+# Local Artifact Server — Spec & Build Plan
+
+Oct 17, 2026 · @Niko Virtala
+
+## Overview
+
+Build a local server that hosts HTML artifacts at stable URLs, keeps every publish as an immutable version, and reloads open browser tabs the moment an agent republishes. Agents publish through an MCP server; storage uses an S3-shaped key layout so the same core can later run on AWS with only the adapters swapped.
+
+The loop it enables: ask an agent for a change → it edits the HTML and calls `publish` with the same id → the tab you have open reloads on its own.
+
+**Goals (v1)**
+
+- Publish a page (single file or a set of files) and get a stable URL back.
+- Republish to the same id creates a new version; the URL stays the same.
+- Open tabs on the current URL reload within 1 s of a publish; pinned version URLs never reload.
+- Agents (Claude Code or any MCP client) can create, update, list, read and roll back artifacts.
+- Runs locally with one command on Node.js 24; no external services. Published to npm, so a fresh repo or machine starts it with npx @nikovirtala/artifact serve.
+- Core logic is independent of transport and storage, behind ports, so AWS adapters slot in later.
+
+**Non-goals (v1)**
+
+- Multi-user auth, sharing, comments, permissions.
+- Runtime capabilities for pages (shared database, asking the model, connected data).
+- In-browser editing of artifacts.
+- Building or bundling artifacts: the server hosts what it is given, as is.
+
+## Concepts and storage layout
+
+An artifact is an id plus an ordered list of immutable versions and one pointer to the current version. Every publish writes a new version directory first, then moves the pointer with a conditional write. Rollback only moves the pointer.
+
+| Concept | Definition |
+| --- | --- |
+| Artifact id | 26-char lowercase ULID (Crockford base32). Lowercase so it is valid as a DNS label for `<id>.localhost` origins. |
+| Version | Monotonic integer from 1. Immutable once written. |
+| Pointer | `meta.json` holding `currentVersion` and an `etag`. The only mutable object per artifact. |
+| Entry page | `index.html` at the version root. Required. |
+| Supporting files | Any other relative paths in the same version (css, js, json, images, fonts). |
+| Label | Optional short name for a publish (≤ 60 chars), stored in the manifest. |
+
+Key layout, identical on local disk and in S3 (local root defaults to `~/.artifacts/`):
+
+```
+artifacts/<id>/meta.json                      # pointer + title, createdAt, updatedAt
+artifacts/<id>/v/<n>/manifest.json            # files[{path, size, sha256, contentType}], label, createdAt
+artifacts/<id>/v/<n>/src/<path>               # files exactly as published (returned by read)
+artifacts/<id>/v/<n>/www/<path>               # served tree: html with the reload snippet injected, other files copied
+```
+
+Rules:
+
+- Writes go `src/` → `www/` → `manifest.json` → pointer. A crash before the pointer move leaves an orphaned version that is never served; a sweep can remove it later.
+- The pointer update is a compare-and-swap on `etag` (local: write to temp file + rename under a per-id lock; S3: `If-Match` conditional `PutObject`). A mismatch returns `version_conflict` with the current version.
+- The reload snippet is injected at publish time into `www/`, not at serve time. This keeps serving a dumb static read, which maps directly to S3 + CloudFront later.
+- Version numbers are allocated from the pointer read at publish start; the conditional pointer write is what guarantees no two publishes claim the same number. Use `If-None-Match: *` semantics when creating `v/<n>/manifest.json`.
+
+## Architecture
+
+One process hosts everything: the MCP endpoint, the JSON API and the viewing routes all call a single core service, which talks to storage and notifications only through ports.
+
+&#91;embedded content: local architecture · 3 entry points, 1 core, 2 ports\]
+
+A publish from either entry point writes a new version, moves the pointer, then emits an event; the SSE stream turns that event into a reload in every tab open on that artifact's current URL.
+
+## Interfaces
+
+Three entry points share one core service: the HTTP server (viewing + JSON API), the MCP endpoint (agents), and a CLI (humans and scripts). The CLI and MCP never touch storage directly; they call the core or the JSON API.
+
+**HTTP: viewing** (default port 4400, bound to 127.0.0.1)
+
+| Route | Returns |
+| --- | --- |
+| `GET http://<id>.localhost:4400/` | Current version's `www/index.html` (subdomain mode, default) |
+| `GET http://<id>.localhost:4400/<path>` | Supporting file from current version's `www/` |
+| `GET http://<id>.localhost:4400/v/<n>/…` | Pinned version; reload snippet stays inert |
+| `GET http://localhost:4400/a/<id>/…` | Same as above in path mode (fallback when `*.localhost` does not resolve) |
+| `GET /__artifact/reload.js` | The reload client script |
+| `GET /__artifact/events?id=<id>` | SSE stream for one artifact |
+| `GET http://localhost:4400/` | Gallery: artifacts newest first, title, version, updated |
+
+**HTTP: JSON API** (`/api`, same port)
+
+| Method + path | Body / headers | Result |
+| --- | --- | --- |
+| `GET /api/artifacts` | `?limit=` | List of `{id, title, currentVersion, updatedAt, url}` |
+| `GET /api/artifacts/:id` | — | Meta + version list |
+| `GET /api/artifacts/:id/files/*` | `?version=` | One `src/` file |
+| `POST /api/artifacts` | `{title?, label?, files: {path: base64 or utf8}}` | 201 `{id, version: 1, url}` |
+| `PUT /api/artifacts/:id` | same body, optional `If-Match: <version>` | 200 `{id, version, url}` or 409 `version_conflict` |
+| `POST /api/artifacts/:id/rollback` | `{version}` | Pointer moved; emits a publish event |
+| `DELETE /api/artifacts/:id` | — | 204; removes all versions |
+
+**MCP tools** (Streamable HTTP at `/mcp`; connect Claude Code with `claude mcp add --transport http artifacts http://localhost:4400/mcp`)
+
+| Tool | Input | Output | Description the agent sees (key rule) |
+| --- | --- | --- | --- |
+| `artifact_publish` | `file_path` or `files` map, `id?`, `title?`, `label?`, `if_version?` | `{id, version, url}` | Omit `id` to create a new artifact. Pass `id` to update it in place and keep the URL. |
+| `artifact_list` | `limit?` | artifacts | Use to recover an id before updating instead of creating a duplicate. |
+| `artifact_read` | `id`, `version?`, `path?` | file contents + version | Read before editing an artifact this session did not publish. |
+| `artifact_rollback` | `id`, `version` | new pointer | Moves current back to an earlier version. |
+| `artifact_delete` | `id`, `confirm: true` | ok | Only when the user explicitly asks. |
+
+`file_path` accepts a local HTML file; sibling files referenced by relative paths are included only if listed in `files`. `file_path` is local-only and is rejected in the AWS deployment, where content must be sent inline.
+
+**CLI: one binary for server and client** (`artifact`)
+
+One executable does both jobs. `artifact serve` runs the server; every other command is a thin client of the running server's JSON API (default `http://localhost:4400`, override with `--server` or `ARTIFACT_SERVER`). Client commands never touch storage directly; if no server answers, they exit non-zero and suggest `artifact serve`.
+
+| Command | Role | Does |
+| --- | --- | --- |
+| `artifact serve [--port 4400] [--root ~/.artifacts] [--isolation subdomain or path]` | server | Viewing routes, `/api`, `/mcp`, SSE |
+| `artifact publish <file or dir> [--id] [--title] [--label]` | client | Creates or updates; prints the URL |
+| `artifact list`, `artifact read <id> [--version]`, `artifact open <id>` | client | Inspect; `open` launches the browser |
+| `artifact rollback <id> <version>`, `artifact rm <id>` | client | Move the pointer; delete |
+| `artifact mcp` | client | stdio MCP bridge to the running server, for MCP clients that cannot use HTTP |
+
+## Tech stack and repo layout
+
+Node.js 24 runs the TypeScript sources directly through native type stripping; TypeScript 7 is used only for type-checking. Use pnpm for packages and mise (mise.toml) to pin Node 24 and pnpm. Keep runtime dependencies to the five in this table (Hono, its Node server, the MCP SDK, Zod, ulid).
+
+| Concern | Choice | Why |
+| --- | --- | --- |
+| Runtime | Node.js 24 LTS, ESM only | Native type stripping, no build step locally |
+| Types | TypeScript 7, `tsc --noEmit` | Fast native checker; code must use erasable syntax only |
+| HTTP | Hono + `@hono/node-server` | Same app runs on Lambda via `hono/aws-lambda`; built-in SSE streaming |
+| MCP | `@modelcontextprotocol/sdk` | Streamable HTTP server transport, stateless mode |
+| Validation | Zod | MCP tool schemas and API bodies from one definition |
+| IDs | `ulid` (or a 20-line local impl) | Sortable, lowercase-able |
+| Tests | `node:test` + `node:assert`, `fast-check` (dev) | No test runner dependency; property tests for paths and versioning |
+| Lint/format | Biome (dev) | One tool, fast |
+
+`tsconfig.json` essentials: `"module": "nodenext"`, `"target": "esnext"`, `"strict": true`, `"erasableSyntaxOnly": true`, `"verbatimModuleSyntax": true`, `"allowImportingTsExtensions": true`, `"noEmit": true`. No enums, namespaces or parameter properties (Node cannot strip them). Imports use `.ts` extensions.
+
+**Packaging.** Node.js does not strip types from files inside `node_modules`, so the published package must ship JavaScript. Development keeps running `.ts` directly; only the package is built.
+
+- `tsconfig.build.json` extends the base config, drops `noEmit` and `allowImportingTsExtensions`, sets `"outDir": "dist"`, `"declaration": true` and `"rewriteRelativeImportExtensions": true` so `.ts` imports become `.js`.
+- `package.json`: `"name": "@nikovirtala/artifact"`, `"bin": {"artifact": "dist/cli/main.js"}`, `"exports"` pointing at `dist/`, `"files": ["dist", "README.md"]`, `"engines": {"node": ">=24"}`.
+- `reload-client.js` is copied to `dist/http/` by the build script, since `tsc` does not copy non-TS files.
+- `prepublishOnly` runs `check` then `build`.
+
+```
+artifact/
+  mise.toml                 # pins node 24 and pnpm
+  package.json              # "type": "module", "bin": {"artifact": "dist/cli/main.js"}, "files": ["dist"]
+  tsconfig.json
+  biome.json
+  src/
+    core/                   # pure domain: no node:fs, no hono
+      artifact-service.ts   # publish, list, read, rollback, delete
+      ports.ts              # BlobStore, PointerStore, Notifier, Clock, IdGen interfaces
+      inject.ts             # reload-snippet injection into html
+      paths.ts              # path normalisation + validation
+      errors.ts             # typed error results (version_conflict, not_found, invalid_path, too_large)
+    adapters/
+      fs-store.ts           # BlobStore + PointerStore on local disk
+      memory-store.ts       # for tests
+      memory-notifier.ts    # in-process EventEmitter
+    http/
+      app.ts                # Hono app: viewing routes, /api, /__artifact/*
+      sse.ts
+      reload-client.js      # served as /__artifact/reload.js (plain JS, no build)
+    mcp/
+      server.ts             # tool definitions mounted at /mcp
+    cli/
+      main.ts
+    config.ts
+  test/
+    contract/blob-store.contract.ts   # shared suite every store adapter must pass
+    core/ http/ mcp/ e2e/
+```
+
+The `core/` folder must not import from `adapters/`, `http/` or `mcp/`. Enforce it with a Biome rule or a tiny test that scans imports.
+
+## Security and isolation
+
+The server only ever listens on loopback, and each artifact gets its own browser origin so pages cannot read each other's storage.
+
+- **Loopback only.** Bind `127.0.0.1` (and `::1`). Never `0.0.0.0` unless a `--host` flag is passed explicitly, and then print a warning.
+- **DNS-rebinding guard.** Reject requests whose `Host` is not `localhost`, `127.0.0.1`, `[::1]` or `<id>.localhost` on the configured port. For `/mcp` and `/api`, also reject a browser `Origin` that is not `http://localhost:<port>` (the MCP spec asks servers to validate `Origin`).
+- **Origin per artifact.** Default `isolation: subdomain` serves each artifact from `http://<id>.localhost:<port>`, so localStorage, IndexedDB and cookies are per artifact. Path mode shares one origin and is a documented fallback only.
+- **Optional token.** If `ARTIFACT_TOKEN` is set, `/api` and `/mcp` require `Authorization: Bearer <token>`. Viewing routes stay open on loopback.
+- **Path safety.** Normalise every file path; reject absolute paths, `..` segments, backslashes, NUL, and anything that resolves outside the version directory. Max 255 files per publish.
+- **Size limits.** 16 MB per file, 64 MB per publish. Return `too_large` with the limit.
+- **Content types.** Derive from extension against an allowlist (html, css, js, mjs, json, svg, png, jpg, gif, webp, avif, ico, woff, woff2, txt, md, csv, pdf, mp4, webm). Send `X-Content-Type-Options: nosniff`.
+- **Headers on artifact pages.** `Referrer-Policy: no-referrer`, `Cross-Origin-Opener-Policy: same-origin`. No restrictive CSP by default, since artifacts may load from CDNs; make CSP a config option.
+- **Delete is explicit.** `artifact_delete` requires `confirm: true`; the tool description tells the agent to call it only when the user asks.
+
+## Build plan
+
+Seven milestones (M0–M6), each shippable and verified before the next starts. M1–M4 make the end-to-end loop work; M5 polishes; M6 is the later AWS move.
+
+1. **M0 — Scaffold.** Package, tsconfig, Biome, `node:test` wiring, npm scripts `check` (typecheck + lint + test) and build (emit to dist/ with tsconfig.build.json).
+   - [ ] `pnpm check` passes on an empty project with TS 7.
+   - [ ] `node src/cli/main.ts --help` runs with no build step.
+2. **M1 — Core + storage.** Ports, `ArtifactService`, `paths.ts`, `inject.ts`, memory and filesystem adapters, contract test suite.
+   - [ ] Both store adapters pass the same contract suite.
+   - [ ] Publish → new version; republish → version + 1; pointer moves last.
+   - [ ] Concurrent publishes to one id: exactly one wins per version number, the other gets `version_conflict` or the next number; never a lost or duplicated version.
+   - [ ] Property tests: any path accepted by `paths.ts` stays inside the version directory; versions are strictly increasing.
+   - [ ] Injection adds exactly one `<script src="/__artifact/reload.js" defer>` before `</body>` (or at end if absent); `src/` stays byte-identical.
+3. **M2 — HTTP serving + API.** Hono app with viewing routes (both isolation modes), JSON API, gallery, security headers, Host/Origin guard.
+   - [ ] `curl` on the current URL returns the latest version; `/v/<n>/` returns that version.
+   - [ ] Traversal attempts (`../`, encoded `%2e%2e`) return 400.
+   - [ ] A request with `Host: evil.example` returns 403.
+4. **M3 — Live reload.** SSE endpoint, in-process notifier, `reload-client.js`.
+   - [ ] A tab open on the current URL reloads within 1 s of a publish or rollback.
+   - [ ] A pinned `/v/<n>/` tab never reloads.
+   - [ ] After the server restarts or the connection drops, the client reconnects and reloads if it missed a publish (it sends `Last-Event-ID` = its version; the server replies with the current version immediately).
+   - [ ] Heartbeat comment every 20 s; no leaked listeners after 1,000 connect/disconnect cycles.
+5. **M4 — MCP.** Five tools at `/mcp`, stateless Streamable HTTP, Zod schemas shared with the API.
+   - [ ] From Claude Code: "make an HTML page …" creates an artifact and returns its URL.
+   - [ ] "Change the heading" in the same session republishes to the same id; the open tab reloads.
+   - [ ] In a new session, the agent finds the artifact via `artifact_list` and updates it instead of creating a duplicate.
+6. **M5 — CLI + polish.** CLI commands, rollback, delete, labels, orphan sweep on startup, npm packaging, README with the npx quick start and the Claude Code setup line.
+   - [ ] Every CLI command has an e2e test against a temp root.
+   - [ ] README quick start works from a clean clone in under 2 minutes.
+   - [ ] `pnpm pack` tarball installed into a temp directory passes the e2e suite (catches anything still pointing at `.ts`).
+   - [ ] `npx @nikovirtala/artifact serve` starts the server from the tarball with no other setup.
+7. **M6 — AWS adapters (later).** See AWS migration path.
+
+### How live reload works
+
+The client script reads its artifact id and pinned/current state from its own page URL. If pinned, it does nothing. Otherwise it opens `EventSource('/__artifact/events?id=<id>')`. The server sends `event: published` with `id: <version>` and `data: {"version": n}`. The client compares `n` to the version it loaded (embedded by `inject.ts` as `data-version` on the script tag) and calls `location.reload()` when `n` differs. Rollback emits the same event.
+
+## Testing and verification
+
+The contract suite is the most important test asset: it is what lets the S3 adapter replace the filesystem adapter without touching the core.
+
+| Layer | What | How |
+| --- | --- | --- |
+| Contract | `BlobStore` / `PointerStore` behaviour: get, put, list by prefix, conditional put (`If-Match`, `If-None-Match: *`), conflict errors | One suite in `test/contract/`, run against memory, fs, and later S3 (LocalStack or a real test bucket) |
+| Core | Service rules: versioning, pointer last, rollback, conflicts, limits | Memory adapters + fake clock and id generator; `fast-check` for paths and concurrent publish ordering |
+| HTTP | Routes, headers, guards, SSE framing | `app.request()` in-process, no sockets |
+| MCP | Tool schemas, results, errors | MCP SDK client against the in-process server |
+| E2E | Real server on a random port + temp root | Spawn the CLI, publish via API, assert an SSE `published` event arrives; one optional Playwright smoke test that a real tab reloads |
+
+Definition of done for every milestone: `pnpm check` green, acceptance boxes ticked, README updated for anything user-visible, no new runtime dependency without a note in the PR.
+
+## AWS migration path
+
+The move to AWS swaps adapters and the reload transport; the core, the key layout, the API shapes and the MCP tool schemas stay the same. Infrastructure in CDK (TypeScript).
+
+| Port / concern | Local (v1) | AWS (M6) |
+| --- | --- | --- |
+| `BlobStore` | Filesystem under `~/.artifacts/` | S3 bucket, same keys; `If-None-Match: *` on manifests |
+| `PointerStore` | `meta.json` + temp-file rename under a per-id lock | `meta.json` in S3 with `If-Match` conditional writes (or DynamoDB if listing/querying needs grow) |
+| Serving | Hono static read from `www/` | CloudFront in front of S3 (OAC). Wildcard cert `*.art.<domain>`; a CloudFront Function maps `Host` → `artifacts/<id>/v/<n>/www/…`, reading `<id> → n` from CloudFront KeyValueStore |
+| Pointer → edge | n/a | Publish updates the KeyValueStore entry after the S3 pointer write; HTML served with short TTL, assets long TTL (versioned keys are immutable) |
+| `Notifier` + reload | In-process EventEmitter → SSE | AppSync Events channel `/artifacts/<id>`; publish Lambda posts the event; the AWS `reload.js` subscribes over WebSocket |
+| API + MCP | Hono on `@hono/node-server` | Same Hono app on Lambda (`hono/aws-lambda`) behind a Function URL or API Gateway; MCP stays stateless Streamable HTTP |
+| Auth | Loopback + optional bearer token | Cognito/OIDC for API and MCP; viewing gated per artifact (private by default) |
+| `file_path` input | Allowed | Rejected; inline `files` only |
+
+What to keep true locally so the move stays cheap:
+
+- The core never knows whether it is on disk or S3; every storage call goes through the ports.
+- Serving stays a static read of precomputed `www/` files; no per-request HTML rewriting.
+- `reload.js` is served by the platform, not stored in artifacts, so each deployment can ship its own transport.
+- The contract suite runs against the S3 adapter in CI before M6 is called done.
+
+## Agent instructions and open questions
+
+Hand this document to the building agent with the brief below.
+
+```
+Build the artifact server described in this spec, milestone by milestone (M0 → M5).
+- Before each milestone, restate its acceptance criteria as failing tests, then implement until they pass.
+- Write the store contract suite before either store adapter.
+- Node.js 24, TypeScript 7, ESM, erasable syntax only (no enums, namespaces, parameter properties).
+- Run .ts directly in development; the npm package ships built JS from dist/ (Node does not strip types in node_modules).
+- Runtime deps limited to: hono, @hono/node-server, @modelcontextprotocol/sdk, zod, ulid. Ask before adding any other.
+- core/ must not import from adapters/, http/, mcp/ or node:fs.
+- Stop after each milestone: run `pnpm check`, summarise what changed, list any deviation from the spec and why.
+- Do not build M6 (AWS) or anything listed under non-goals.
+```
+
+Open questions to settle before or during M2:
+
+- [ ] npm name: publish as `@nikovirtala/artifact` unless the unscoped `artifact` is free; the CLI is `artifact` either way.
+- [ ] Default port: 4400 OK?
+- [ ] Safari: confirm `*.localhost` resolves without `/etc/hosts` entries; if not, auto-fall back to path mode for Safari or document the hosts entry.
+- [ ] Require `ARTIFACT_TOKEN` by default, or keep loopback-only as the sole guard?
+- [ ] Should the gallery page be in v1, or is `artifact list` enough?
+- [ ] Retention: keep all versions forever locally, or cap at N per artifact?
