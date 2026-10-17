@@ -4,7 +4,15 @@
 //   artifacts/<id>/v/<n>/src/<path>
 //   artifacts/<id>/v/<n>/www/<path>
 
-import { fail, type InvalidPath, invalidPath, ok, type Result } from "./errors.ts";
+import {
+  fail,
+  type InvalidInput,
+  type InvalidPath,
+  invalidInput,
+  invalidPath,
+  ok,
+  type Result,
+} from "./errors.ts";
 
 export const MAX_FILES_PER_PUBLISH = 255;
 
@@ -92,6 +100,18 @@ const artifactIdPattern = /^[0-9a-hjkmnp-tv-z]{26}$/;
 /** 26-char lowercase Crockford base32 (ULID alphabet). */
 export function isArtifactId(id: string): boolean {
   return artifactIdPattern.test(id);
+}
+
+/** Lowercase `id` (hostnames and users may uppercase it) and require a valid artifact id. */
+export function normalizeId(id: string): Result<string, InvalidInput> {
+  const lower = id.toLowerCase();
+  if (isArtifactId(lower)) return ok(lower);
+  return fail(
+    invalidInput(
+      "id",
+      `invalid artifact id ${JSON.stringify(id)}: expected a 26-character lowercase ULID; use artifact_list to find the id`,
+    ),
+  );
 }
 
 export const ARTIFACTS_PREFIX = "artifacts/";
