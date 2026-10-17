@@ -2,7 +2,7 @@
 
 Local server that hosts HTML artifacts at stable URLs, keeps every publish as an immutable version, and live-reloads open tabs when an agent republishes. See [docs/00-plan.md](docs/00-plan.md) for the spec and [docs/decisions/](docs/decisions/) for decision records.
 
-**Status: M0 (scaffold).** The CLI only prints usage; nothing is served yet.
+**Status: M1 (core + storage).** The core service (publish, list, read, rollback, delete) and the memory and filesystem stores are done and tested. Nothing is served yet, and the CLI only prints usage.
 
 ## Development
 

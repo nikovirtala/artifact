@@ -17,3 +17,10 @@ One short file per decision, numbered in order. Status is **Accepted** (in effec
 | [0011](0011-artifact-token-default.md) | `ARTIFACT_TOKEN` default | Proposed |
 | [0012](0012-gallery-in-v1.md) | Gallery page in v1 | Proposed |
 | [0013](0013-version-retention.md) | Version retention | Proposed |
+| [0014](0014-port-shapes.md) | S3-shaped ports and typed error results | Accepted |
+| [0015](0015-publish-protocol-and-conflicts.md) | Publish protocol: claim by `src/index.html`, retry without `ifVersion` | Accepted |
+| [0016](0016-hashing.md) | SHA-256 via Web Crypto in the core | Accepted |
+| [0017](0017-ulid-local-implementation.md) | Local lowercase ULID implementation instead of the `ulid` package | Accepted |
+| [0018](0018-fs-store-atomicity-and-locking.md) | Filesystem store: exclusive create, rename-based CAS, in-process lock | Accepted |
+| [0019](0019-path-rules-and-extensions.md) | Path rules and disallowed extensions | Accepted |
+| [0020](0020-reload-injection.md) | Reload-snippet injection on bytes, replacing earlier injected tags | Accepted |
