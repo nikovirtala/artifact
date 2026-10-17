@@ -9,6 +9,7 @@
 import {
   type ArtifactError,
   fail,
+  invalidInput,
   invalidPath,
   notFound,
   ok,
@@ -386,9 +387,23 @@ function versionInfo(version: number, prepared: Prepared, createdAt: string): Ve
 /** Validate limits and paths before anything is written. `index.html` comes first. */
 async function prepare(input: PublishInput): Promise<Result<Prepared>> {
   const entries = Object.entries(input.files);
-  if (entries.length > LIMITS.maxFiles) return fail(tooLarge("file_count", LIMITS.maxFiles));
+  if (entries.length > LIMITS.maxFiles) {
+    return fail(
+      invalidInput(
+        "files",
+        `too many files: at most ${LIMITS.maxFiles} per publish`,
+        LIMITS.maxFiles,
+      ),
+    );
+  }
   if (input.label !== undefined && [...input.label].length > LIMITS.maxLabelChars) {
-    return fail(tooLarge("label", LIMITS.maxLabelChars));
+    return fail(
+      invalidInput(
+        "label",
+        `label exceeds ${LIMITS.maxLabelChars} characters`,
+        LIMITS.maxLabelChars,
+      ),
+    );
   }
   const files: Omit<PreparedFile, "sha256">[] = [];
   // Case-insensitive, because the default disk (macOS APFS) would merge such paths.

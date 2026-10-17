@@ -282,9 +282,9 @@ describe("ArtifactService validation", () => {
     files.extra = "";
     files["f254.txt"] = "";
     assert.deepEqual(await rejected(files), {
-      code: "too_large",
-      message: "file count exceeds the limit of 255 files",
-      subject: "file_count",
+      code: "invalid_input",
+      message: "too many files: at most 255 per publish",
+      field: "files",
       limit: 255,
     });
   });
@@ -326,11 +326,12 @@ describe("ArtifactService validation", () => {
     const { service } = harness();
     unwrap(await service.publish({ label: "x".repeat(60), files: { "index.html": "x" } }));
     unwrap(await service.publish({ label: "👋".repeat(60), files: { "index.html": "x" } }));
-    const error = await rejected({ "index.html": "x" }, "x".repeat(61));
-    assert.deepEqual(error && error.code === "too_large" && [error.subject, error.limit], [
-      "label",
-      60,
-    ]);
+    assert.deepEqual(await rejected({ "index.html": "x" }, "x".repeat(61)), {
+      code: "invalid_input",
+      message: "label exceeds 60 characters",
+      field: "label",
+      limit: 60,
+    });
   });
 });
 
