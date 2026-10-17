@@ -43,7 +43,14 @@ describe("tools/list", () => {
       assert.ok(t.description && t.description.length > 40, t.name);
     }
     const props = (name: string) => Object.keys(by[name].inputSchema.properties ?? {}).sort();
-    assert.deepEqual(props("artifact_publish"), ["files", "id", "if_version", "label", "title"]);
+    assert.deepEqual(props("artifact_publish"), [
+      "file_path",
+      "files",
+      "id",
+      "if_version",
+      "label",
+      "title",
+    ]);
     assert.deepEqual(props("artifact_list"), ["limit"]);
     assert.deepEqual(props("artifact_read"), ["id", "path", "version"]);
     assert.deepEqual(props("artifact_rollback"), ["id", "version"]);

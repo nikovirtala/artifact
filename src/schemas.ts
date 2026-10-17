@@ -42,12 +42,21 @@ export const PublishToolInputSchema = PublishBodySchema.extend({
   label: PublishBodySchema.shape.label.describe(
     `Short name for this version, at most ${LIMITS.maxLabelChars} characters.`,
   ),
-  files: FilesSchema.describe(
-    'Relative path → contents. "index.html" is required. A string is UTF-8 text; {"base64": "…"} is binary.',
+  file_path: z
+    .string()
+    .optional()
+    .describe(
+      "Absolute path of a local .html file, published as index.html. Supporting files are not read from disk: pass them in files. Local server only.",
+    ),
+  files: FilesSchema.optional().describe(
+    'Relative path → contents. "index.html" is required unless file_path is given. A string is UTF-8 text; {"base64": "…"} is binary.',
   ),
   if_version: PublishBodySchema.shape.if_version.describe(
     "Update only if this is still the current version, else version_conflict. Ignored when creating.",
   ),
+}).refine((input) => input.files !== undefined || input.file_path !== undefined, {
+  message: "pass files, file_path, or both",
+  path: ["files"],
 });
 
 export const ListToolInputSchema = z.strictObject({
