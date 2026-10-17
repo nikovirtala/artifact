@@ -5,16 +5,19 @@ import { bodyLimit } from "hono/body-limit";
 import type { z } from "zod";
 import { LIMITS } from "../core/artifact-service.ts";
 import type { ArtifactError, Result } from "../core/errors.ts";
-import { decodeFiles, PublishBodySchema, RollbackBodySchema } from "../schemas.ts";
+import {
+  DEFAULT_LIST_LIMIT,
+  decodeFiles,
+  MAX_BODY_BYTES,
+  PublishBodySchema,
+  RollbackBodySchema,
+} from "../schemas.ts";
 import type { AppDeps } from "./app.ts";
 import { badRequest, httpError, jsonError } from "./errors.ts";
 import { type AppEnv, originGuard, parseIfMatch, tokenGuard } from "./guards.ts";
 import { API_FILE_CSP } from "./headers.ts";
 import { artifactUrl } from "./urls.ts";
 
-const DEFAULT_LIST_LIMIT = 50;
-/** 64 MiB of files as base64 (×4/3) plus JSON overhead; larger bodies are cut off unread. */
-const MAX_BODY_BYTES = 96 * 1024 * 1024;
 const POSITIVE_INTEGER = /^[1-9][0-9]*$/;
 
 type Parsed<T> = { ok: true; value: T } | { ok: false; response: Response };
