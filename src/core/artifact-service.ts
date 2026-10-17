@@ -27,6 +27,7 @@ import {
   MAX_FILES_PER_PUBLISH,
   manifestKey,
   metaKey,
+  normalizeId,
   normalizePath,
   srcKey,
   validateFilePath,
@@ -178,7 +179,9 @@ export class ArtifactService {
     if (!prepared.ok) return prepared;
     const now = this.#clock.now().toISOString();
     if (input.id === undefined) return this.#create(input.title, prepared.value, now);
-    return this.#update(input.id, input.title, input.ifVersion, prepared.value, now);
+    const id = normalizeId(input.id);
+    if (!id.ok) return id;
+    return this.#update(id.value, input.title, input.ifVersion, prepared.value, now);
   }
 
   /** Artifacts, most recently updated first. */
@@ -195,7 +198,10 @@ export class ArtifactService {
   }
 
   /** Meta plus the committed versions, oldest first. */
-  async read(id: string): Promise<Result<ArtifactDetails>> {
+  async read(rawId: string): Promise<Result<ArtifactDetails>> {
+    const normalized = normalizeId(rawId);
+    if (!normalized.ok) return normalized;
+    const id = normalized.value;
     const pointer = await this.#readPointer(id);
     if (!pointer) return artifactNotFound(id);
     return ok({ ...summary(pointer.meta), versions: pointer.meta.versions });
@@ -203,9 +209,12 @@ export class ArtifactService {
 
   /** One file exactly as published (from `src/`); defaults to `index.html` of the current version. */
   async readFile(
-    id: string,
+    rawId: string,
     options: { path?: string; version?: number } = {},
   ): Promise<Result<FileContent>> {
+    const normalized = normalizeId(rawId);
+    if (!normalized.ok) return normalized;
+    const id = normalized.value;
     const pointer = await this.#readPointer(id);
     if (!pointer) return artifactNotFound(id);
     const version = options.version ?? pointer.meta.currentVersion;
@@ -224,7 +233,10 @@ export class ArtifactService {
   }
 
   /** Move the pointer to an earlier (or any committed) version; emits a `published` event. */
-  async rollback(id: string, version: number): Promise<Result<Published>> {
+  async rollback(rawId: string, version: number): Promise<Result<Published>> {
+    const normalized = normalizeId(rawId);
+    if (!normalized.ok) return normalized;
+    const id = normalized.value;
     for (let attempt = 0; attempt < this.#maxAttempts; attempt++) {
       const pointer = await this.#readPointer(id);
       if (!pointer) return artifactNotFound(id);
@@ -242,7 +254,10 @@ export class ArtifactService {
   }
 
   /** Remove the pointer, then every object of every version. */
-  async delete(id: string): Promise<Result<void>> {
+  async delete(rawId: string): Promise<Result<void>> {
+    const normalized = normalizeId(rawId);
+    if (!normalized.ok) return normalized;
+    const id = normalized.value;
     if (!(await this.#readPointer(id))) return artifactNotFound(id);
     await this.#pointers.delete(metaKey(id));
     const { keys } = await this.#blobs.list(artifactPrefix(id));

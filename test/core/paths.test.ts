@@ -7,6 +7,7 @@ import {
   isArtifactId,
   manifestKey,
   metaKey,
+  normalizeId,
   normalizePath,
   srcKey,
   validateFilePath,
@@ -152,5 +153,17 @@ describe("keys", () => {
     assert.ok(!isArtifactId(`${id}0`));
     assert.ok(!isArtifactId("01hzx3k5m7n9p1q3r5s7t9v1wu"));
     assert.ok(!isArtifactId("../../../../etc/passwd/xxxx"));
+  });
+
+  it("normalizeId lowercases valid ids and rejects others as invalid_input", () => {
+    assert.deepEqual(normalizeId(id.toUpperCase()), { ok: true, value: id });
+    assert.deepEqual(normalizeId(id), { ok: true, value: id });
+    for (const bad of ["", "abc", `${id}0`, "01HZX3K5M7N9P1Q3R5S7T9V1WU", "../etc"]) {
+      const result = normalizeId(bad);
+      assert.ok(!result.ok, bad);
+      assert.equal(result.error.code, "invalid_input");
+      assert.equal(result.error.field, "id");
+      assert.match(result.error.message, /use artifact_list to find the id/);
+    }
   });
 });

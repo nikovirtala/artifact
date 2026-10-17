@@ -216,12 +216,48 @@ describe("ArtifactService.publish", () => {
     assert.equal(unwrap(await service.read(id)).currentVersion, 2);
   });
 
-  it("updating an unknown or malformed id is not_found", async () => {
+  it("updating an unknown id is not_found", async () => {
     const { service } = harness();
-    for (const id of ["0000000000000000000000000z", "../../etc", "ABC"]) {
-      const result = await service.publish({ id, files: { "index.html": "x" } });
-      assert.equal(!result.ok && result.error.code, "not_found", id);
+    const result = await service.publish({
+      id: "0000000000000000000000000z",
+      files: { "index.html": "x" },
+    });
+    assert.equal(!result.ok && result.error.code, "not_found");
+  });
+
+  it("malformed ids are invalid_input pointing to artifact_list", async () => {
+    const { service } = harness();
+    const { id } = unwrap(await service.publish({ files: { "index.html": "x" } }));
+    for (const bad of ["../../etc", "ABC", ""]) {
+      for (const result of [
+        await service.publish({ id: bad, files: { "index.html": "x" } }),
+        await service.read(bad),
+        await service.readFile(bad),
+        await service.rollback(bad, 1),
+        await service.delete(bad),
+      ]) {
+        assert.ok(!result.ok, bad);
+        assert.equal(result.error.code, "invalid_input", bad);
+        assert.equal("field" in result.error && result.error.field, "id", bad);
+        assert.match(result.error.message, /artifact_list/);
+      }
     }
+    assert.equal(unwrap(await service.read(id)).id, id);
+  });
+
+  it("uppercase ids are lowercased before lookup", async () => {
+    const { service } = harness();
+    const { id } = unwrap(await service.publish({ files: { "index.html": "x" } }));
+    const upper = id.toUpperCase();
+    assert.equal(unwrap(await service.read(upper)).id, id);
+    assert.equal(unwrap(await service.readFile(upper)).id, id);
+    assert.deepEqual(unwrap(await service.publish({ id: upper, files: { "index.html": "y" } })), {
+      id,
+      version: 2,
+    });
+    assert.deepEqual(unwrap(await service.rollback(upper, 1)), { id, version: 1 });
+    unwrap(await service.delete(upper));
+    assert.equal((await service.read(id)).ok, false);
   });
 
   it("a failing notifier does not fail a committed publish", async () => {
