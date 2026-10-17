@@ -260,6 +260,33 @@ describe("ArtifactService.publish", () => {
     assert.equal((await service.read(id)).ok, false);
   });
 
+  it("explains retry exhaustion in the version_conflict message", async () => {
+    const store = createMemoryStore();
+    let contended = false;
+    const pointers: PointerStore = {
+      ...store,
+      write: (key, body, condition) =>
+        contended && "ifMatch" in condition
+          ? Promise.resolve({ ok: false, reason: "precondition_failed" })
+          : store.write(key, body, condition),
+    };
+    const { service } = harness({ blobs: store, pointers, maxAttempts: 3 });
+    const { id } = unwrap(await service.publish({ files: { "index.html": "1" } }));
+    contended = true;
+    for (const result of [
+      await service.publish({ id, files: { "index.html": "2" } }),
+      await service.rollback(id, 1),
+    ]) {
+      assert.ok(!result.ok);
+      assert.equal(result.error.code, "version_conflict");
+      assert.equal("currentVersion" in result.error && result.error.currentVersion, 1);
+      assert.match(
+        result.error.message,
+        /gave up after 3 attempts due to concurrent publishes.*retry the same request without if_version/,
+      );
+    }
+  });
+
   it("a failing notifier does not fail a committed publish", async () => {
     const notifier = recordingNotifier(() => {
       throw new Error("listener blew up");
