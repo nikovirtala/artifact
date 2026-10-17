@@ -1,6 +1,6 @@
 // BlobStore + PointerStore on local disk. Key `a/b/c` lives at `<root>/a/b/c`, so the tree under
 // the root is the same layout as the S3 bucket. Scratch files go to `<root>/.tmp/`, which is
-// never a key. Conditional writes:
+// never a key; neither is the server lock `<root>/.lock` (docs/decisions/0026). Conditional writes:
 // - create-only (`ifNoneMatch: "*"`): exclusive open with the `wx` flag;
 // - pointer compare-and-swap: under a per-key lock, compare the etag (sha256 of the bytes),
 //   write a temp file and rename it over the target, so readers see old or new, never partial.
@@ -28,6 +28,10 @@ export type FsStoreOptions = {
 };
 
 const TMP = ".tmp";
+const LOCK = ".lock";
+
+/** Root entries that are not part of the key tree. */
+const isReserved = (name: string) => name === TMP || name === LOCK;
 const RETRIES = 5;
 
 const preconditionFailed: WriteResult = { ok: false, reason: "precondition_failed" };
@@ -66,7 +70,7 @@ export function createFsStore(options: FsStoreOptions): FsStore {
 
   function fileFor(key: string): string {
     assertValidKey(key);
-    if (key === TMP || key.startsWith(`${TMP}/`)) {
+    if (isReserved(key.split("/", 1)[0])) {
       throw new TypeError(`invalid store key ${JSON.stringify(key)}`);
     }
     return join(root, ...key.split("/"));
@@ -151,7 +155,7 @@ export function createFsStore(options: FsStoreOptions): FsStore {
 
   async function walk(dir: string, keyPrefix: string, out: string[]): Promise<void> {
     for (const entry of await entries(dir)) {
-      if (keyPrefix === "" && entry.name === TMP) continue;
+      if (keyPrefix === "" && isReserved(entry.name)) continue;
       const key = keyPrefix + entry.name;
       if (entry.isFile()) out.push(key);
       else if (entry.isDirectory()) await walk(join(dir, entry.name), `${key}/`, out);
@@ -191,7 +195,8 @@ export function createFsStore(options: FsStoreOptions): FsStore {
         const keys: string[] = [];
         const commonPrefixes: string[] = [];
         for (const entry of await entries(dir)) {
-          if (!entry.name.startsWith(namePrefix) || (dirKey === "" && entry.name === TMP)) continue;
+          if (!entry.name.startsWith(namePrefix) || (dirKey === "" && isReserved(entry.name)))
+            continue;
           if (entry.isFile()) keys.push(dirKey + entry.name);
           else if (entry.isDirectory() && (await hasFile(join(dir, entry.name)))) {
             commonPrefixes.push(`${dirKey}${entry.name}/`);

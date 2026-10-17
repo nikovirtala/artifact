@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it } from "node:test";
@@ -38,6 +38,18 @@ describe("fs store on disk", () => {
         "artifacts/x/v/1/src/index.html",
       ]);
       await assert.rejects(store.put(".tmp/x", new Uint8Array()), TypeError);
+      await assert.rejects(store.put(".lock", new Uint8Array()), TypeError);
+      await assert.rejects(store.get(".lock/x"), TypeError);
+      await writeFile(join(root, ".lock"), "{}");
+      assert.deepEqual((await store.list("")).keys, [
+        "artifacts/x/meta.json",
+        "artifacts/x/v/1/src/index.html",
+      ]);
+      assert.deepEqual(await store.list("", { delimiter: "/" }), {
+        keys: [],
+        commonPrefixes: ["artifacts/"],
+      });
+      assert.deepEqual((await store.list(".l", { delimiter: "/" })).keys, []);
     } finally {
       await rm(root, { recursive: true, force: true });
     }
