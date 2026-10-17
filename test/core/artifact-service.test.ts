@@ -94,7 +94,7 @@ describe("ArtifactService.publish", () => {
     assert.equal(text(unwrap(await service.readFile(id)).body), "three");
     assert.equal(text(unwrap(await service.readFile(id, { version: 1 })).body), "one");
     assert.deepEqual(
-      notifier.events.map((e) => e.version),
+      notifier.events.map((e) => (e.type === "published" ? e.version : e.type)),
       [1, 2, 3],
     );
   });
@@ -116,7 +116,9 @@ describe("ArtifactService.publish", () => {
         return store.write(key, body, condition);
       },
     };
-    const notifier = recordingNotifier((e) => log.push(`notify ${e.version}`));
+    const notifier = recordingNotifier((e) =>
+      log.push(`notify ${e.type === "published" ? e.version : e.type}`),
+    );
     const { service } = harness({ blobs, pointers, notifier });
     const files = { "index.html": "<body></body>", "a.css": "a", "b.js": "b" };
     const { id } = unwrap(await service.publish({ files }));
@@ -175,7 +177,7 @@ describe("ArtifactService.publish", () => {
     const orphan = await service.readFile(id, { version: 2 });
     assert.equal(!orphan.ok && orphan.error.code, "not_found");
     assert.deepEqual(
-      notifier.events.map((e) => e.version),
+      notifier.events.map((e) => (e.type === "published" ? e.version : e.type)),
       [1],
     );
 
@@ -287,12 +289,15 @@ describe("ArtifactService.publish", () => {
     }
   });
 
-  it("a failing notifier does not fail a committed publish", async () => {
+  it("a failing notifier does not fail a committed publish or delete", async () => {
     const notifier = recordingNotifier(() => {
       throw new Error("listener blew up");
     });
-    const { service } = harness({ notifier });
-    assert.equal(unwrap(await service.publish({ files: { "index.html": "x" } })).version, 1);
+    const { service, store } = harness({ notifier });
+    const { id, version } = unwrap(await service.publish({ files: { "index.html": "x" } }));
+    assert.equal(version, 1);
+    unwrap(await service.delete(id));
+    assert.deepEqual((await store.list(`artifacts/${id}/`)).keys, []);
   });
 });
 
@@ -545,21 +550,24 @@ describe("ArtifactService.rollback", () => {
 });
 
 describe("ArtifactService.delete and list", () => {
-  it("delete removes the pointer and every version", async () => {
-    const { service, store } = harness();
+  it("delete removes the pointer and every version, and emits deleted", async () => {
+    const { service, store, notifier } = harness();
     const { id } = unwrap(await service.publish({ files: { "index.html": "one" } }));
     unwrap(await service.publish({ id, files: { "index.html": "two", "a.css": "" } }));
     const other = unwrap(await service.publish({ files: { "index.html": "other" } }));
 
     assert.deepEqual(await service.delete(id), { ok: true, value: undefined });
+    assert.deepEqual(notifier.events.at(-1), { type: "deleted", id });
     assert.deepEqual((await store.list(`artifacts/${id}/`)).keys, []);
     assert.equal((await service.read(id)).ok, false);
     assert.deepEqual(
       unwrap(await service.list()).map((a) => a.id),
       [other.id],
     );
+    const events = notifier.events.length;
     const again = await service.delete(id);
     assert.equal(!again.ok && again.error.code, "not_found");
+    assert.equal(notifier.events.length, events);
     const update = await service.publish({ id, files: { "index.html": "x" } });
     assert.equal(!update.ok && update.error.code, "not_found");
   });

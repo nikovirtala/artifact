@@ -34,7 +34,15 @@ import {
   validateFilePath,
   wwwKey,
 } from "./paths.ts";
-import type { BlobStore, Clock, IdGen, Notifier, PointerObject, PointerStore } from "./ports.ts";
+import type {
+  ArtifactEvent,
+  BlobStore,
+  Clock,
+  IdGen,
+  Notifier,
+  PointerObject,
+  PointerStore,
+} from "./ports.ts";
 
 export const LIMITS = {
   maxFiles: MAX_FILES_PER_PUBLISH,
@@ -294,13 +302,15 @@ export class ArtifactService {
     return this.#conflict(id);
   }
 
-  /** Remove the pointer, then every object of every version. */
+  /** Remove the pointer (then emit `deleted`), then every object of every version. */
   async delete(rawId: string): Promise<Result<void>> {
     const normalized = normalizeId(rawId);
     if (!normalized.ok) return normalized;
     const id = normalized.value;
     if (!(await this.#readPointer(id))) return artifactNotFound(id);
     await this.#pointers.delete(metaKey(id));
+    // Gone for viewers once the pointer is; open tabs learn it before the blob cleanup.
+    await this.#notify({ type: "deleted", id });
     const { keys } = await this.#blobs.list(artifactPrefix(id));
     await forEachLimited(keys, (key) => this.#blobs.delete(key));
     return ok(undefined);
@@ -418,13 +428,17 @@ export class ArtifactService {
   }
 
   async #published(id: string, version: number): Promise<Result<Published>> {
-    try {
-      await this.#notifier.notify({ type: "published", id, version });
-    } catch {
-      // The pointer already moved, so the publish stands; a missed reload is recoverable
-      // (clients reconnect and compare versions).
-    }
+    await this.#notify({ type: "published", id, version });
     return ok({ id, version });
+  }
+
+  async #notify(event: ArtifactEvent): Promise<void> {
+    try {
+      await this.#notifier.notify(event);
+    } catch {
+      // The pointer already moved (or is gone), so the change stands; a missed event is
+      // recoverable (clients reconnect and are sent the current state).
+    }
   }
 
   async #conflict(id: string): Promise<Result<never, ArtifactError>> {
