@@ -403,7 +403,13 @@ export class ArtifactService {
   async #conflict(id: string): Promise<Result<never, ArtifactError>> {
     const pointer = await this.#readPointer(id);
     if (!pointer) return artifactNotFound(id);
-    return fail(versionConflict(pointer.meta.currentVersion));
+    const current = pointer.meta.currentVersion;
+    return fail(
+      versionConflict(
+        current,
+        `version conflict: gave up after ${this.#maxAttempts} attempts due to concurrent publishes (current version is ${current}); retry the same request without if_version`,
+      ),
+    );
   }
 }
 

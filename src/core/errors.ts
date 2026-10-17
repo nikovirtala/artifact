@@ -49,10 +49,10 @@ export function fail<E>(error: E): { ok: false; error: E } {
   return { ok: false, error };
 }
 
-export function versionConflict(currentVersion: number): VersionConflict {
+export function versionConflict(currentVersion: number, message?: string): VersionConflict {
   return {
     code: "version_conflict",
-    message: `version conflict: current version is ${currentVersion}`,
+    message: message ?? `version conflict: current version is ${currentVersion}`,
     currentVersion,
   };
 }
