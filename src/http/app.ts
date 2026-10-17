@@ -10,6 +10,7 @@ import { httpError, jsonError } from "./errors.ts";
 import { renderGallery } from "./gallery.ts";
 import { type AppEnv, hostGuard, isApiPath, traversalGuard } from "./guards.ts";
 import { GALLERY_CSP, plainText, securityHeaders } from "./headers.ts";
+import { reloadClient } from "./reload.ts";
 import { type ArtifactEvents, eventStream } from "./sse.ts";
 import { artifactUrl, type Isolation } from "./urls.ts";
 import { notFound, redirect, serveArtifact } from "./viewing.ts";
@@ -46,6 +47,7 @@ export function createApp(deps: AppDeps): Hono<AppEnv> {
   app.use(traversalGuard(csp));
 
   // Platform routes, on every host. On <id>.localhost only that artifact's events are served.
+  app.get("/__artifact/reload.js", () => reloadClient());
   app.get("/__artifact/events", async (c) => {
     // Hono answers HEAD from the GET handler and drops the body, which would leave the stream
     // (and its subscription) open.

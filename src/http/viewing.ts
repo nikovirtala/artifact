@@ -43,7 +43,8 @@ export async function serveArtifact(
     version = Number(n);
     segments = segments.slice(2);
   }
-  if (segments[0] === "__artifact") return notFound(csp); // platform assets, M3
+  // Platform routes live at the origin root only (`/__artifact/…`, see app.ts).
+  if (segments[0] === "__artifact") return notFound(csp);
 
   const decoded = segments.map((s) => decodeURIComponent(s));
   const last = decoded.at(-1) ?? "";

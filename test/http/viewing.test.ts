@@ -110,7 +110,8 @@ describe("subdomain viewing", () => {
       "/v/01/",
       "/v/x/",
       "/v",
-      "/__artifact/reload.js",
+      "/__artifact/nope.js",
+      "/v/1/__artifact/reload.js",
     ]) {
       const res = await sub(path);
       assert.equal(res.status, 404, path);
