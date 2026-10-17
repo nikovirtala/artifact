@@ -43,6 +43,8 @@ describe("normalizePath", () => {
       "a\n.html",
       "C:/x.html",
       "c:x.html",
+      "./c:x.html",
+      ".//a:",
       "dir/",
     ]) {
       const result = normalizePath(input);

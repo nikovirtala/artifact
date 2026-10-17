@@ -62,7 +62,10 @@ export function normalizePath(path: string): Result<string, InvalidPath> {
   const segments = path.split("/").filter((s) => s !== "" && s !== ".");
   if (segments.includes("..")) return fail(invalidPath(path, "'..' segment"));
   if (segments.length === 0) return fail(invalidPath(path, "empty"));
-  return ok(segments.join("/"));
+  const normalized = segments.join("/");
+  // Dropping a leading `./` can expose a drive prefix (`./c:x` → `c:x`).
+  if (/^[a-zA-Z]:/.test(normalized)) return fail(invalidPath(path, "drive letter"));
+  return ok(normalized);
 }
 
 function hasControlCharacter(s: string): boolean {
