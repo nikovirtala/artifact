@@ -40,6 +40,7 @@ export const LIMITS = {
   maxFileBytes: 16 * 1024 * 1024,
   maxPublishBytes: 64 * 1024 * 1024,
   maxLabelChars: 60,
+  maxListLimit: 500,
 } as const;
 
 const DEFAULT_MAX_ATTEMPTS = 20;
@@ -184,8 +185,21 @@ export class ArtifactService {
     return this.#update(id.value, input.title, input.ifVersion, prepared.value, now);
   }
 
-  /** Artifacts, most recently updated first. */
-  async list(options: { limit?: number } = {}): Promise<ArtifactSummary[]> {
+  /** Artifacts, most recently updated first; `limit` is an integer 1..500 (default: all). */
+  async list(options: { limit?: number } = {}): Promise<Result<ArtifactSummary[]>> {
+    const { limit } = options;
+    if (
+      limit !== undefined &&
+      (!Number.isInteger(limit) || limit < 1 || limit > LIMITS.maxListLimit)
+    ) {
+      return fail(
+        invalidInput(
+          "limit",
+          `limit must be an integer from 1 to ${LIMITS.maxListLimit}`,
+          LIMITS.maxListLimit,
+        ),
+      );
+    }
     const { commonPrefixes } = await this.#blobs.list(ARTIFACTS_PREFIX, { delimiter: "/" });
     const ids = commonPrefixes
       .map((p) => p.slice(ARTIFACTS_PREFIX.length, -1))
@@ -194,7 +208,7 @@ export class ArtifactService {
     const metas = pointers.flatMap((p) => (p ? [p.meta] : []));
     const key = (m: ArtifactMeta) => `${m.updatedAt} ${m.id}`;
     metas.sort((a, b) => (key(a) < key(b) ? 1 : key(a) > key(b) ? -1 : 0));
-    return metas.slice(0, options.limit ?? metas.length).map(summary);
+    return ok(metas.slice(0, limit ?? metas.length).map(summary));
   }
 
   /** Meta plus the committed versions, oldest first. */

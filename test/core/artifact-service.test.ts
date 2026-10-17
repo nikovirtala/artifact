@@ -171,7 +171,7 @@ describe("ArtifactService.publish", () => {
       [1],
     );
     assert.equal(text(unwrap(await service.readFile(id)).body), "v1");
-    assert.equal((await service.list())[0].currentVersion, 1);
+    assert.equal(unwrap(await service.list())[0].currentVersion, 1);
     const orphan = await service.readFile(id, { version: 2 });
     assert.equal(!orphan.ok && orphan.error.code, "not_found");
     assert.deepEqual(
@@ -197,7 +197,7 @@ describe("ArtifactService.publish", () => {
     };
     const { service } = harness({ blobs: store, pointers });
     await assert.rejects(service.publish({ files: { "index.html": "x" } }));
-    assert.deepEqual(await service.list(), []);
+    assert.deepEqual(unwrap(await service.list()), []);
   });
 
   it("ifVersion: updates when current, version_conflict with the current version otherwise", async () => {
@@ -470,7 +470,7 @@ describe("ArtifactService.delete and list", () => {
     assert.deepEqual((await store.list(`artifacts/${id}/`)).keys, []);
     assert.equal((await service.read(id)).ok, false);
     assert.deepEqual(
-      (await service.list()).map((a) => a.id),
+      unwrap(await service.list()).map((a) => a.id),
       [other.id],
     );
     const again = await service.delete(id);
@@ -487,7 +487,7 @@ describe("ArtifactService.delete and list", () => {
     clock.advance(1000);
     unwrap(await service.publish({ id: a.id, files: { "index.html": "a2" } }));
 
-    const all = await service.list();
+    const all = unwrap(await service.list());
     assert.deepEqual(
       all.map((s) => [s.title, s.currentVersion]),
       [
@@ -496,9 +496,29 @@ describe("ArtifactService.delete and list", () => {
       ],
     );
     assert.deepEqual(
-      (await service.list({ limit: 1 })).map((s) => s.id),
+      unwrap(await service.list({ limit: 1 })).map((s) => s.id),
       [a.id],
     );
+    assert.equal(unwrap(await service.list({ limit: 500 })).length, 2);
     assert.notEqual(a.id, b.id);
+  });
+
+  it("rejects a limit outside 1..500 as invalid_input", async () => {
+    const { service } = harness();
+    for (const limit of [0, -1, 501, 1.5, Number.NaN, Number.POSITIVE_INFINITY]) {
+      assert.deepEqual(
+        await service.list({ limit }),
+        {
+          ok: false,
+          error: {
+            code: "invalid_input",
+            message: "limit must be an integer from 1 to 500",
+            field: "limit",
+            limit: 500,
+          },
+        },
+        String(limit),
+      );
+    }
   });
 });
