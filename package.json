@@ -1,0 +1,40 @@
+{
+  "name": "@nikovirtala/artifact",
+  "version": "0.0.0",
+  "description": "Local server that hosts HTML artifacts at stable URLs with immutable versions and live reload",
+  "type": "module",
+  "bin": {
+    "artifact": "dist/cli/main.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=24"
+  },
+  "packageManager": "pnpm@12.14.0",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "lint": "biome check .",
+    "format": "biome check --write .",
+    "test": "node --test \"test/**/*.test.ts\"",
+    "check": "pnpm typecheck && pnpm lint && pnpm test",
+    "clean": "node scripts/clean.ts",
+    "build": "pnpm clean && tsc -p tsconfig.build.json && node scripts/copy-assets.ts",
+    "prepublishOnly": "pnpm check && pnpm build"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.5.15",
+    "@types/node": "^24.19.2",
+    "fast-check": "4.10.2",
+    "typescript": "7.0.2"
+  }
+}
