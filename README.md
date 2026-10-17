@@ -38,7 +38,7 @@ The API routes are in the spec ("HTTP: JSON API"). The details are in ADRs [0021
 Notes:
 
 - **CSP.** A custom `--csp` must allow `'self'` scripts (`script-src 'self'`). Otherwise live reload, which arrives in M3, cannot load `/__artifact/reload.js`.
-- **Safari.** It has not been verified that Safari resolves `*.localhost` without `/etc/hosts` entries. If `http://<id>.localhost:4400/` does not open, use `http://localhost:4400/a/<id>/`, or start with `--isolation path`.
+- **Safari.** Safari resolves `http://<id>.localhost:4400/` without `/etc/hosts` entries ([0010](docs/decisions/0010-safari-localhost.md)). If `*.localhost` does not resolve somewhere, use `http://localhost:4400/a/<id>/`, or start with `--isolation path`.
 - **Path mode shares one origin.** Pages under `/a/<id>/` share storage (localStorage, cookies) with each other and can call `/api` on the same origin. Set `ARTIFACT_TOKEN` if that matters. Subdomain pages cannot call the API.
 
 ## Development
