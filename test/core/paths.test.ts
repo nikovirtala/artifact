@@ -133,6 +133,18 @@ describe("content types", () => {
     }
   });
 
+  it("reserves the v/ and __artifact/ prefixes", () => {
+    for (const input of ["v/x.html", "V/a.css", "./v/1/index.html", "__artifact/reload.js"]) {
+      const result = validateFilePath(input);
+      assert.ok(!result.ok, input);
+      assert.equal(result.error.code, "invalid_path");
+      assert.match(result.error.message, /reserved path prefix/);
+    }
+    for (const input of ["v.css", "vid/x.css", "a/v/x.css", "__artifact.css"]) {
+      assert.ok(validateFilePath(input).ok, input);
+    }
+  });
+
   it("validateFilePath returns the normalised path with its content type", () => {
     assert.deepEqual(validateFilePath("./css//site.css"), {
       ok: true,

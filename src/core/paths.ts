@@ -88,10 +88,17 @@ function hasControlCharacter(s: string): boolean {
 
 export type ValidFile = { path: string; contentType: string };
 
-/** Normalise `path` and require an allowlisted extension. */
+/** First path segments taken by viewing URLs: pinned versions and platform assets. */
+const RESERVED_FIRST_SEGMENTS: ReadonlySet<string> = new Set(["v", "__artifact"]);
+
+/** Normalise `path`, refuse reserved prefixes, and require an allowlisted extension. */
 export function validateFilePath(path: string): Result<ValidFile, InvalidPath> {
   const normalized = normalizePath(path);
   if (!normalized.ok) return normalized;
+  const [first] = normalized.value.split("/");
+  if (normalized.value.includes("/") && RESERVED_FIRST_SEGMENTS.has(first.toLowerCase())) {
+    return fail(invalidPath(path, "reserved path prefix"));
+  }
   const contentType = contentTypeFor(normalized.value);
   if (contentType === undefined) return fail(invalidPath(path, "file type not allowed"));
   return ok({ path: normalized.value, contentType });
