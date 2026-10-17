@@ -21,6 +21,7 @@ import { injectReloadScriptBytes } from "./inject.ts";
 import {
   ARTIFACTS_PREFIX,
   artifactPrefix,
+  contentTypeFor,
   ENTRY_PAGE,
   isArtifactId,
   isHtml,
@@ -244,6 +245,32 @@ export class ArtifactService {
     const body = file && (await this.#blobs.get(srcKey(id, version, path.value)));
     if (!file || !body) return fail(notFound(`file ${JSON.stringify(path.value)} not found`));
     return ok({ id, version, path: file.path, contentType: file.contentType, body });
+  }
+
+  /**
+   * One file of the served tree (`www/`, html injected) for the viewing routes; defaults to the
+   * current version. A static read: pointer, then the blob. No manifest lookup.
+   */
+  async readServed(
+    rawId: string,
+    options: { path: string; version?: number },
+  ): Promise<Result<FileContent>> {
+    const normalized = normalizeId(rawId);
+    if (!normalized.ok) return normalized;
+    const id = normalized.value;
+    const pointer = await this.#readPointer(id);
+    if (!pointer) return artifactNotFound(id);
+    const version = options.version ?? pointer.meta.currentVersion;
+    if (!pointer.meta.versions.some((v) => v.version === version)) {
+      return fail(notFound(`version ${version} of artifact ${id} not found`));
+    }
+    const path = normalizePath(options.path);
+    if (!path.ok) return path;
+    const contentType = contentTypeFor(path.value);
+    const body = contentType && (await this.#blobs.get(wwwKey(id, version, path.value)));
+    if (!contentType || !body)
+      return fail(notFound(`file ${JSON.stringify(path.value)} not found`));
+    return ok({ id, version, path: path.value, contentType, body });
   }
 
   /** Move the pointer to an earlier (or any committed) version; emits a `published` event. */
