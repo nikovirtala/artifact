@@ -15,7 +15,8 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import type { ArtifactService } from "../core/artifact-service.ts";
-import type { Result } from "../core/errors.ts";
+import { fail, invalidInput, type Result } from "../core/errors.ts";
+import { ENTRY_PAGE } from "../core/paths.ts";
 import { errorBody, httpError } from "../http/errors.ts";
 import { artifactUrl, type Isolation } from "../http/urls.ts";
 import {
@@ -29,8 +30,14 @@ import {
   ReadToolInputSchema,
   RollbackToolInputSchema,
 } from "../schemas.ts";
+import { readEntryFile } from "./file-path.ts";
 
-export type McpConfig = { port: number; isolation: Isolation };
+export type McpConfig = {
+  port: number;
+  isolation: Isolation;
+  /** Accept `artifact_publish` `file_path` (default true; a remote deployment turns it off). */
+  allowFilePath?: boolean;
+};
 
 export type McpDeps = { service: ArtifactService; config: McpConfig };
 
@@ -43,12 +50,18 @@ const INSTRUCTIONS =
   "and browser tabs open on an artifact's URL reload when it is republished. To change a page, " +
   "publish to its existing id instead of creating a new artifact; use artifact_list to find the id.";
 
+/** Per-request facts the tools need beyond their arguments. */
+type CallContext = {
+  /** The request came from a web page (it carries `Origin` or `Sec-Fetch-Site`). */
+  fromBrowser: boolean;
+};
+
 type ToolSpec<S extends z.ZodType> = {
   name: string;
   description: string;
   input: S;
   annotations: ToolAnnotations;
-  run: (args: z.infer<S>) => Promise<Result<Record<string, unknown>>>;
+  run: (args: z.infer<S>, context: CallContext) => Promise<Result<Record<string, unknown>>>;
 };
 
 const tool = <S extends z.ZodType>(spec: ToolSpec<S>) => spec as unknown as ToolSpec<z.ZodType>;
@@ -71,6 +84,36 @@ function fileValue(contentType: string, body: Uint8Array): FileValue {
 function tools(deps: McpDeps): ToolSpec<z.ZodType>[] {
   const { service, config } = deps;
   const urlFor = (id: string) => artifactUrl(id, config);
+  const entryFromPath = async (
+    path: string,
+    files: Readonly<Record<string, unknown>>,
+    { fromBrowser }: CallContext,
+  ): Promise<Result<Uint8Array>> => {
+    if (config.allowFilePath === false) {
+      return fail(
+        invalidInput(
+          "file_path",
+          "file_path is not supported by this server; send the page inline as files['index.html']",
+        ),
+      );
+    }
+    // A page served from this origin (path-mode /a/<id>/) passes the Origin guard; it must not
+    // get to read local files (docs/decisions/0035).
+    if (fromBrowser) {
+      return fail(
+        invalidInput(
+          "file_path",
+          "file_path is not accepted from browser pages; send the page inline as files['index.html']",
+        ),
+      );
+    }
+    if (Object.hasOwn(files, ENTRY_PAGE)) {
+      return fail(
+        invalidInput("file_path", "file_path and files both give index.html; pass only one"),
+      );
+    }
+    return readEntryFile(path);
+  };
   const published = (result: Result<{ id: string; version: number }>) =>
     result.ok
       ? { ok: true as const, value: { ...result.value, url: urlFor(result.value.id) } }
@@ -81,6 +124,9 @@ function tools(deps: McpDeps): ToolSpec<z.ZodType>[] {
       name: "artifact_publish",
       description: [
         "Publish an HTML page (index.html plus optional supporting files) and get its URL back.",
+        config.allowFilePath === false
+          ? "file_path is not supported by this server: send index.html inline in files."
+          : "Instead of files['index.html'] you can pass file_path, the absolute path of a local .html file; supporting files it references are included only if you also list them in files.",
         "Omit id to create a new artifact. Pass id to update that artifact in place: it gets a new version and keeps its URL, and open tabs reload.",
         "Before creating, if this page may already exist (from earlier in this session or another one), call artifact_list and reuse its id instead of creating a duplicate.",
         "Returns {id, version, url}; show the url to the user.",
@@ -89,16 +135,17 @@ function tools(deps: McpDeps): ToolSpec<z.ZodType>[] {
       ].join(" "),
       input: PublishToolInputSchema,
       annotations: { title: "Publish artifact", destructiveHint: false, openWorldHint: false },
-      run: async ({ id, title, label, if_version, files }) =>
-        published(
-          await service.publish({
-            id,
-            title,
-            label,
-            ifVersion: if_version,
-            files: decodeFiles(files),
-          }),
-        ),
+      run: async ({ id, title, label, if_version, file_path, files }, context) => {
+        const decoded = decodeFiles(files ?? {});
+        if (file_path !== undefined) {
+          const entry = await entryFromPath(file_path, decoded, context);
+          if (!entry.ok) return entry;
+          decoded[ENTRY_PAGE] = entry.value;
+        }
+        return published(
+          await service.publish({ id, title, label, ifVersion: if_version, files: decoded }),
+        );
+      },
     }),
     tool({
       name: "artifact_list",
@@ -196,7 +243,7 @@ function catalog(deps: McpDeps): Catalog {
   };
 }
 
-function createServer({ byName, listed }: Catalog): Server {
+function createServer({ byName, listed }: Catalog, context: CallContext): Server {
   // The low-level Server, not McpServer: McpServer answers schema failures with a plain-text
   // message, while these tools return the API's `invalid_request` object (docs/decisions/0034).
   const server = new Server(
@@ -219,7 +266,7 @@ function createServer({ byName, listed }: Catalog): Server {
       );
     }
     try {
-      const result = await spec.run(args.data);
+      const result = await spec.run(args.data, context);
       return result.ok ? toolResult(result.value) : toolResult(errorBody(result.error), true);
     } catch (error) {
       console.error(error);
@@ -236,6 +283,14 @@ const methodNotAllowed = () =>
   );
 
 /**
+ * Browsers send `Origin` on every POST and `Sec-Fetch-Site` on every request to a trustworthy
+ * origin such as localhost. Non-browser clients send neither; Node's fetch does send
+ * `Sec-Fetch-Mode: cors`, so that header does not count.
+ */
+const fromBrowser = (request: Request) =>
+  request.headers.has("origin") || request.headers.has("sec-fetch-site");
+
+/**
  * The `/mcp` handler. Stateless: every POST gets its own server and transport, so any instance
  * (or Lambda) can answer any request. GET (server-initiated stream) and DELETE (end session) have
  * nothing to do without sessions and get 405.
@@ -244,7 +299,7 @@ export function createMcpHandler(deps: McpDeps): (request: Request) => Promise<R
   const tools = catalog(deps);
   return async (request) => {
     if (request.method !== "POST") return methodNotAllowed();
-    const server = createServer(tools);
+    const server = createServer(tools, { fromBrowser: fromBrowser(request) });
     const transport = new WebStandardStreamableHTTPServerTransport({
       sessionIdGenerator: undefined,
       enableJsonResponse: true,
