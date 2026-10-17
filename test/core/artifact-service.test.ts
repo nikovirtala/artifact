@@ -283,6 +283,7 @@ describe("ArtifactService validation", () => {
       {},
       { "sub/index.html": "x" },
       { "Index.htm": "x" },
+      { "index.htm": "x" },
       { "a.css": "x" },
     ];
     for (const files of cases) {
@@ -368,6 +369,29 @@ describe("ArtifactService validation", () => {
       field: "label",
       limit: 60,
     });
+  });
+});
+
+describe("ArtifactService htm and jpeg files", () => {
+  it("injects the reload tag into .htm pages and copies .jpeg as-is", async () => {
+    const { service, store } = harness();
+    const jpeg = new Uint8Array([0xff, 0xd8, 0xff]);
+    const { id } = unwrap(
+      await service.publish({
+        files: { "index.html": "<body></body>", "page.htm": "<body>p</body>", "a.jpeg": jpeg },
+      }),
+    );
+    const v = `artifacts/${id}/v/1`;
+    assert.equal(
+      text((await store.get(`${v}/www/page.htm`)) ?? new Uint8Array()),
+      `<body>p${reloadScriptTag(1)}</body>`,
+    );
+    assert.equal(
+      text((await store.get(`${v}/src/page.htm`)) ?? new Uint8Array()),
+      "<body>p</body>",
+    );
+    assert.deepEqual(await store.get(`${v}/www/a.jpeg`), jpeg);
+    assert.equal(unwrap(await service.readFile(id, { path: "a.jpeg" })).contentType, "image/jpeg");
   });
 });
 
