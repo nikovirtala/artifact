@@ -103,6 +103,12 @@ Errors are `{"error": "<code>", "message": "…", …}`: 400 `bad_request` (malf
 
 `file_path` accepts a local HTML file; sibling files referenced by relative paths are included only if listed in `files`. `file_path` is local-only and is rejected in the AWS deployment, where content must be sent inline.
 
+Refinements from M4 ([0033](decisions/0033-mcp-transport-and-sdk.md)–[0036](decisions/0036-mcp-tool-descriptions.md)):
+
+- Stateless: a fresh server and transport per `POST /mcp`, JSON responses, no session ids; `GET`/`DELETE /mcp` → 405. Same Origin and token guards as `/api`.
+- Inputs are the API body schemas from `src/schemas.ts` plus `id`; outputs are the API's objects (`artifact_read`: `{id, version, path, contentType, content}`, `content` a string or `{"base64"}`; `artifact_delete`: `{ok: true}`). Errors are tool results with `isError: true` carrying the API error body; schema failures are `invalid_request`.
+- `file_path` must be absolute and name an `.html`/`.htm` file; it becomes `index.html`, and `files` may add supporting files but not `index.html`. It is read by the MCP adapter (never the core), refused (`invalid_input`) on requests from browser pages (`Origin` or `Sec-Fetch-Site` present), and turned off with `allowFilePath: false`, which returns `invalid_input`.
+
 **CLI: one binary for server and client** (`artifact`)
 
 One executable does both jobs. `artifact serve` runs the server; every other command is a thin client of the running server's JSON API (default `http://localhost:4400`, override with `--server` or `ARTIFACT_SERVER`). Client commands never touch storage directly; if no server answers, they exit non-zero and suggest `artifact serve`.

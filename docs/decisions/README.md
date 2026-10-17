@@ -36,3 +36,7 @@ One short file per decision, numbered in order. Status is **Accepted** (in effec
 | [0030](0030-heartbeat-and-listener-lifecycle.md) | SSE heartbeat and listener lifecycle | Accepted |
 | [0031](0031-reload-client.md) | Reload client: mode and pinning from the page URL | Accepted |
 | [0032](0032-events-unknown-id.md) | Events for unknown ids: plain 404, no stream | Accepted |
+| [0033](0033-mcp-transport-and-sdk.md) | MCP: stateless Streamable HTTP, low-level SDK `Server`, Zod 4 | Accepted |
+| [0034](0034-mcp-tool-results-and-errors.md) | MCP tool results and errors: the API's objects, `isError` | Accepted |
+| [0035](0035-file-path.md) | `file_path`: absolute `.html` as `index.html`, siblings via `files`, can be disabled | Accepted |
+| [0036](0036-mcp-tool-descriptions.md) | Tool descriptions are the agent contract | Accepted |

@@ -2,7 +2,7 @@
 
 Local server that hosts HTML artifacts at stable URLs, keeps every publish as an immutable version, and live-reloads open tabs when an agent republishes. See [docs/00-plan.md](docs/00-plan.md) for the spec and [docs/decisions/](docs/decisions/) for decision records.
 
-**Status: M3 (live reload).** `artifact serve` serves artifacts, a gallery and the JSON API, and open tabs reload when an artifact is republished. MCP (M4) and the client CLI commands (M5) are not done yet.
+**Status: M4 (MCP).** `artifact serve` serves artifacts, a gallery, the JSON API and an MCP endpoint for agents, and open tabs reload when an artifact is republished. The client CLI commands, including the `artifact mcp` stdio bridge (M5), are not done yet.
 
 ## Serve
 
@@ -18,7 +18,7 @@ node src/cli/main.ts serve --help
 | `--host <addr>` | `127.0.0.1` + `::1` | Bind only this address. A non-loopback address requires `ARTIFACT_TOKEN`. |
 | `--isolation subdomain\|path` | `subdomain` | URL style returned by the API and the gallery. |
 | `--csp <policy>` / `ARTIFACT_CSP` | none | `Content-Security-Policy` sent on artifact pages. |
-| `ARTIFACT_TOKEN` | unset | If set, `/api` requires `Authorization: Bearer <token>`. Viewing stays open. |
+| `ARTIFACT_TOKEN` | unset | If set, `/api` and `/mcp` require `Authorization: Bearer <token>`. Viewing stays open. |
 
 URLs:
 
@@ -40,6 +40,28 @@ Notes:
 - **CSP.** A custom `--csp` must allow `'self'` scripts and connections (`script-src 'self'; connect-src 'self'`, or `default-src 'self'`). Otherwise live reload cannot load `/__artifact/reload.js` or open its event stream.
 - **Safari.** Safari resolves `http://<id>.localhost:4400/` without `/etc/hosts` entries ([0010](docs/decisions/0010-safari-localhost.md)). If `*.localhost` does not resolve somewhere, use `http://localhost:4400/a/<id>/`, or start with `--isolation path`.
 - **Path mode shares one origin.** Pages under `/a/<id>/` share storage (localStorage, cookies) with each other and can call `/api` on the same origin. Set `ARTIFACT_TOKEN` if that matters. Subdomain pages cannot call the API.
+
+## MCP (agents)
+
+With the server running, connect Claude Code:
+
+```sh
+claude mcp add --transport http artifacts http://localhost:4400/mcp
+# with ARTIFACT_TOKEN set:
+claude mcp add --transport http artifacts http://localhost:4400/mcp --header "Authorization: Bearer $ARTIFACT_TOKEN"
+```
+
+Any MCP client that speaks Streamable HTTP can use `http://localhost:4400/mcp`. The endpoint is stateless (no sessions) and has the same Origin and token guards as `/api`.
+
+| Tool | Input | Result |
+| --- | --- | --- |
+| `artifact_publish` | `files` and/or `file_path`, `id?`, `title?`, `label?`, `if_version?` | `{id, version, url}`. Omit `id` to create; pass it to update in place (same URL, open tabs reload). |
+| `artifact_list` | `limit?` (1..500, default 50) | `{artifacts: [{id, title?, currentVersion, updatedAt, url}]}`. Find an id before updating. |
+| `artifact_read` | `id`, `version?`, `path?` (default `index.html`) | `{id, version, path, contentType, content}`: the file as published, without the reload tag. |
+| `artifact_rollback` | `id`, `version` | `{id, version, url}`: current moves back to that version. |
+| `artifact_delete` | `id`, `confirm: true` | `{ok: true}`. Only when the user asks. |
+
+`files` uses the API encoding: a string is UTF-8, `{"base64": "…"}` is binary. `file_path` is the absolute path of a local `.html` file, published as `index.html`; supporting files are only included if they are also listed in `files`. It is refused on requests from browser pages. Errors come back as tool errors (`isError`) with the API's `{"error", "message", …}` object. See ADRs [0033](docs/decisions/0033-mcp-transport-and-sdk.md)–[0036](docs/decisions/0036-mcp-tool-descriptions.md).
 
 ## Live reload
 
