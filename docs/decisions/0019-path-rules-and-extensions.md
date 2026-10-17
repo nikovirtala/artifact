@@ -17,3 +17,10 @@ The spec says: reject absolute paths, `..` segments, backslashes, NUL, and anyth
 ## Consequences
 
 Adding an extension later means one line in `core/paths.ts`, plus a decision record if it widens what the server hosts.
+
+## Update (M2)
+
+- `jpeg` (`image/jpeg`) and `htm` (`text/html`) are added to the allowlist. Reload injection covers `.htm` too. The entry page is still exactly `index.html`.
+- Disallowed or missing extensions still reject the whole publish, and case-only duplicates are still rejected.
+- The first path segments `v` and `__artifact` (case-insensitive) are reserved and rejected as `invalid_path`, because those URLs belong to pinned versions and the platform (0024).
+- The HTTP layer percent-decodes and rejects traversal on the raw request target before calling the core (0027).
