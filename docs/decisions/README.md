@@ -8,7 +8,7 @@ One short file per decision, numbered in order. Status is **Accepted** (in effec
 | [0002](0002-typescript-7.md) | TypeScript 7 from the `typescript` package; `types: ["node"]` | Accepted |
 | [0003](0003-test-runner.md) | `node --test` with a quoted glob, running `.ts` directly | Accepted |
 | [0004](0004-core-import-boundary.md) | Enforce the core import boundary with a test | Accepted |
-| [0005](0005-build-and-assets.md) | Build script, tolerant asset copy, no reload-client placeholder | Accepted |
+| [0005](0005-build-and-assets.md) | Build script, strict asset copy, no reload-client placeholder | Accepted |
 | [0006](0006-package-entry.md) | Empty library entry `src/index.ts`; CLI-only package from M2 | Accepted |
 | [0007](0007-cli-m0-behaviour.md) | M0 CLI: usage only, no argument-parsing dependency | Accepted |
 | [0008](0008-npm-name.md) | npm package name `@nikovirtala/artifact` | Accepted |
