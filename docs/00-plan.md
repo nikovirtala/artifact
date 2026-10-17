@@ -284,7 +284,7 @@ Open questions to settle before or during M2 (all resolved in M2):
 
 - [x] npm name: `@nikovirtala/artifact` ([0008](decisions/0008-npm-name.md)).
 - [x] Default port: 4400, override with `--port` / `ARTIFACT_PORT`, never auto-picked ([0009](decisions/0009-default-port.md)).
-- [x] Safari: path-mode routes always mounted, `--isolation path` for path-style URLs, no `User-Agent` switch unless the manual Safari check fails ([0010](decisions/0010-safari-localhost.md)).
+- [x] Safari: resolves `<id>.localhost` without `/etc/hosts` (verified manually), so no `User-Agent` switch; path-mode routes stay mounted as a fallback ([0010](decisions/0010-safari-localhost.md)).
 - [x] `ARTIFACT_TOKEN`: optional on loopback, required for a non-loopback `--host` ([0011](decisions/0011-artifact-token-default.md)).
 - [x] Gallery: minimal read-only page in v1 ([0012](decisions/0012-gallery-in-v1.md)).
 - [x] Retention: keep all versions; maybe an explicit `artifact prune` later ([0013](decisions/0013-version-retention.md)).

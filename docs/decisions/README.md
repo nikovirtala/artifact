@@ -13,7 +13,7 @@ One short file per decision, numbered in order. Status is **Accepted** (in effec
 | [0007](0007-cli-m0-behaviour.md) | M0 CLI: usage only, no argument-parsing dependency | Accepted |
 | [0008](0008-npm-name.md) | npm package name `@nikovirtala/artifact` | Accepted |
 | [0009](0009-default-port.md) | Default port 4400 | Accepted |
-| [0010](0010-safari-localhost.md) | Safari and `*.localhost`: path routes always mounted, no UA switch | Accepted |
+| [0010](0010-safari-localhost.md) | Safari and `*.localhost`: works (verified), path routes still mounted, no UA switch | Accepted |
 | [0011](0011-artifact-token-default.md) | `ARTIFACT_TOKEN` optional on loopback, required off loopback | Accepted |
 | [0012](0012-gallery-in-v1.md) | Gallery page in v1 | Accepted |
 | [0013](0013-version-retention.md) | Version retention: keep all versions | Accepted |
