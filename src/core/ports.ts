@@ -44,8 +44,10 @@ export interface PointerStore {
   delete(key: string): Promise<void>;
 }
 
-/** Emitted after the pointer moves (publish or rollback). */
-export type ArtifactEvent = { type: "published"; id: string; version: number };
+/** `published` after the pointer moves (publish or rollback); `deleted` after a delete. */
+export type ArtifactEvent =
+  | { type: "published"; id: string; version: number }
+  | { type: "deleted"; id: string };
 
 export interface Notifier {
   notify(event: ArtifactEvent): Promise<void>;
