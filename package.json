@@ -2,6 +2,7 @@
   "name": "@nikovirtala/artifact",
   "version": "0.0.0",
   "description": "Local server that hosts HTML artifacts at stable URLs with immutable versions and live reload",
+  "license": "MIT",
   "type": "module",
   "bin": {
     "artifact": "dist/cli/main.js"
@@ -15,7 +16,8 @@
   },
   "files": [
     "dist",
-    "README.md"
+    "README.md",
+    "LICENSE"
   ],
   "engines": {
     "node": ">=24"
