@@ -31,3 +31,8 @@ One short file per decision, numbered in order. Status is **Accepted** (in effec
 | [0025](0025-security-headers-and-csp.md) | Security headers and CSP | Accepted |
 | [0026](0026-single-server-lockfile.md) | One server per root: `<root>/.lock` | Accepted |
 | [0027](0027-listeners-host-token-guards.md) | Listeners, `--host`, token and request guards | Accepted |
+| [0028](0028-sse-handshake-and-reconnect.md) | SSE events: current version on every connect | Accepted |
+| [0029](0029-deleted-event.md) | `deleted` event and banner | Accepted |
+| [0030](0030-heartbeat-and-listener-lifecycle.md) | SSE heartbeat and listener lifecycle | Accepted |
+| [0031](0031-reload-client.md) | Reload client: mode and pinning from the page URL | Accepted |
+| [0032](0032-events-unknown-id.md) | Events for unknown ids: plain 404, no stream | Accepted |

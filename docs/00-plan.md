@@ -73,8 +73,8 @@ Three entry points share one core service: the HTTP server (viewing + JSON API),
 | `GET http://<id>.localhost:4400/<path>` | Supporting file from current version's `www/` |
 | `GET http://<id>.localhost:4400/v/<n>/…` | Pinned version; reload snippet stays inert |
 | `GET http://localhost:4400/a/<id>/…` | Same as above in path mode, including `/a/<id>/v/<n>/…`; always mounted (fallback when `*.localhost` does not resolve) |
-| `GET /__artifact/reload.js` | The reload client script |
-| `GET /__artifact/events?id=<id>` | SSE stream for one artifact |
+| `GET /__artifact/reload.js` | The reload client script, on every allowed host ([0031](decisions/0031-reload-client.md)) |
+| `GET /__artifact/events?id=<id>` | SSE stream for one artifact; on `<id>.localhost` only that id; plain 404 for unknown ids ([0028](decisions/0028-sse-handshake-and-reconnect.md)–[0032](decisions/0032-events-unknown-id.md)) |
 | `GET http://localhost:4400/` | Gallery: artifacts newest first, title, version, updated, link ([0012](decisions/0012-gallery-in-v1.md)) |
 
 **HTTP: JSON API** (`/api`, same port)
@@ -136,7 +136,7 @@ Node.js 24 runs the TypeScript sources directly through native type stripping; T
 
 - `tsconfig.build.json` extends the base config, drops `noEmit` and `allowImportingTsExtensions`, sets `"outDir": "dist"`, `"declaration": true` and `"rewriteRelativeImportExtensions": true` so `.ts` imports become `.js`.
 - `package.json`: `"name": "@nikovirtala/artifact"`, `"bin": {"artifact": "dist/cli/main.js"}`, `"exports"` only `./package.json` (CLI-only in v1, [0006](decisions/0006-package-entry.md)), `"license": "MIT"`, `"files": ["dist", "README.md", "LICENSE"]`, `"engines": {"node": ">=24"}`.
-- `reload-client.js` is copied to `dist/http/` by the build script, since `tsc` does not copy non-TS files.
+- `reload-client.js` is copied to `dist/http/` by the build script, since `tsc` does not copy non-TS files. The copy is strict: a missing asset fails the build ([0005](decisions/0005-build-and-assets.md)).
 - `prepublishOnly` runs `check` then `build`.
 
 ```
@@ -158,7 +158,8 @@ artifact/
       memory-notifier.ts    # in-process EventEmitter
     http/
       app.ts                # Hono app: viewing routes, /api, /__artifact/*
-      sse.ts
+      sse.ts                # /__artifact/events stream
+      reload.ts             # serves reload-client.js
       reload-client.js      # served as /__artifact/reload.js (plain JS, no build)
     mcp/
       server.ts             # tool definitions mounted at /mcp
@@ -210,7 +211,7 @@ Seven milestones (M0–M6), each shippable and verified before the next starts. 
    - [ ] A pinned `/v/<n>/` tab never reloads.
    - [ ] After the server restarts or the connection drops, the client reconnects and reloads if it missed a publish (it sends `Last-Event-ID` = its version; the server replies with the current version immediately).
    - [ ] Heartbeat comment every 20 s; no leaked listeners after 1,000 connect/disconnect cycles.
-   - Notes: consider a `deleted` event so open tabs learn their artifact is gone ([0015](decisions/0015-publish-protocol-and-conflicts.md)); make the `reload-client.js` copy in the build strict ([0005](decisions/0005-build-and-assets.md)).
+   - Notes: a `deleted` event tells open tabs their artifact is gone ([0029](decisions/0029-deleted-event.md)); the `reload-client.js` copy in the build is strict ([0005](decisions/0005-build-and-assets.md)).
 5. **M4 — MCP.** Five tools at `/mcp`, stateless Streamable HTTP, Zod schemas shared with the API.
    - [ ] From Claude Code: "make an HTML page …" creates an artifact and returns its URL.
    - [ ] "Change the heading" in the same session republishes to the same id; the open tab reloads.
@@ -226,7 +227,14 @@ Seven milestones (M0–M6), each shippable and verified before the next starts. 
 
 ### How live reload works
 
-The client script reads its artifact id and pinned/current state from its own page URL. If pinned, it does nothing. Otherwise it opens `EventSource('/__artifact/events?id=<id>')`. The server sends `event: published` with `id: <version>` and `data: {"version": n}`. The client compares `n` to the version it loaded (embedded by `inject.ts` as `data-version` on the script tag) and calls `location.reload()` when `n` differs. Rollback emits the same event.
+The client script reads its artifact id and pinned/current state from its own page URL (`<id>.localhost` host, or `/a/<id>/` in path mode; pinned if the path below the artifact root starts with `v/<n>/`). If pinned, it does nothing. Otherwise it opens `EventSource('/__artifact/events?id=<id>')`. The server sends `event: published` with `id: <version>` and `data: {"version": n}`. The client compares `n` to the version it loaded (embedded by `inject.ts` as `data-version` on the script tag) and calls `location.reload()` when `n` differs. Rollback emits the same event.
+
+Refinements from M3:
+
+- On every connect and reconnect the server first sends the current version (with `retry: 1000`), so the first connect needs no version parameter and a tab that missed a publish reloads as soon as it reconnects. `Last-Event-ID` is accepted but does not change the reply ([0028](decisions/0028-sse-handshake-and-reconnect.md)).
+- Delete emits `event: deleted` and ends the stream; the client closes the `EventSource` and shows a small banner instead of reloading ([0029](decisions/0029-deleted-event.md)).
+- A `: heartbeat` comment every 20 s; each stream unsubscribes from the notifier when the client disconnects ([0030](decisions/0030-heartbeat-and-listener-lifecycle.md)).
+- Missing, malformed or unknown ids get a plain 404 instead of a stream, so `EventSource` stops retrying ([0032](decisions/0032-events-unknown-id.md)).
 
 ## Testing and verification
 
