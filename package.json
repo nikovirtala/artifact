@@ -3,6 +3,23 @@
   "version": "0.0.0",
   "description": "Local server that hosts HTML artifacts at stable URLs with immutable versions and live reload",
   "license": "MIT",
+  "keywords": [
+    "artifacts",
+    "html",
+    "mcp",
+    "live-reload",
+    "claude-code",
+    "cli"
+  ],
+  "homepage": "https://github.com/nikovirtala/artifact#readme",
+  "bugs": "https://github.com/nikovirtala/artifact/issues",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nikovirtala/artifact.git"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "type": "module",
   "bin": {
     "artifact": "dist/cli/main.js"
