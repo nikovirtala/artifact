@@ -40,3 +40,7 @@ One short file per decision, numbered in order. Status is **Accepted** (in effec
 | [0034](0034-mcp-tool-results-and-errors.md) | MCP tool results and errors: the API's objects, `isError` | Accepted |
 | [0035](0035-file-path.md) | `file_path`: absolute `.html` as `index.html`, siblings via `files`, can be disabled | Accepted |
 | [0036](0036-mcp-tool-descriptions.md) | Tool descriptions are the agent contract | Accepted |
+| [0037](0037-no-browser-requests-to-api-and-mcp.md) | Browser requests (`Origin` or `Sec-Fetch-Site`) to `/api` and `/mcp` get 403 | Accepted |
+| [0038](0038-tool-selection-wording.md) | Tool-selection wording and the CLAUDE.md snippet | Accepted |
+| [0039](0039-project-identifier-and-filtering.md) | Project identifier and list filtering; users and sessions deferred | Accepted |
+| [0040](0040-auto-open-new-artifacts.md) | Open new artifacts in the browser | Accepted |

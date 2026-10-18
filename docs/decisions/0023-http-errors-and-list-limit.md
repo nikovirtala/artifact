@@ -23,3 +23,8 @@ Every error body is `{"error": "<code>", "message": "<text>", ...extra}`, where 
 - `GET /api/artifacts?limit=` defaults to 50 and accepts an integer 1..500 written in canonical form; anything else (including a repeated param) → 400. No pagination in v1.
 - The list response is wrapped: `{"artifacts": [{id, title?, currentVersion, updatedAt, url}]}`, so fields can be added later without breaking clients.
 - Core `list()` validates its own limit too (integer 1..500, else `invalid_input` `{field: "limit", limit: 500}`) and returns a `Result`. Without a limit it lists everything; the gallery uses that.
+
+## Update (M4 follow-up)
+
+- `GET /api/artifacts?project=` returns only that project's artifacts ([0039](0039-project-identifier-and-filtering.md)); the limit applies after filtering. A repeated `project` → 400 `bad_request`; an invalid one → 422 `invalid_input` (`field: "project"`). List items include `project` when set.
+- 403 `forbidden` also covers requests from web pages to `/api` and `/mcp` ([0037](0037-no-browser-requests-to-api-and-mcp.md)).
