@@ -51,10 +51,17 @@ const { version: PACKAGE_VERSION } = createRequire(import.meta.url)("../../packa
   version: string;
 };
 
+// Which tool to pick, then the core loop (docs/decisions/0036, 0038).
+const USE_THIS =
+  'Use this whenever the user asks for an HTML page, mock-up, visualization, report, dashboard, or an "artifact": ' +
+  "publish it here and give the user the URL. Do not use the client's built-in artifact features for these.";
+
 const INSTRUCTIONS =
-  "Hosts HTML pages (artifacts) at stable local URLs. Every publish is a new immutable version, " +
+  `${USE_THIS} ` +
+  "This server hosts HTML pages (artifacts) at stable local URLs. Every publish is a new immutable version, " +
   "and browser tabs open on an artifact's URL reload when it is republished. To change a page, " +
-  "publish to its existing id instead of creating a new artifact; use artifact_list to find the id.";
+  "publish to its existing id instead of creating a new artifact; use artifact_list to find the id. " +
+  "Pass project on every call, as the tools describe.";
 
 type ToolSpec<S extends z.ZodType> = {
   name: string;
@@ -112,7 +119,8 @@ function tools(deps: McpDeps): ToolSpec<z.ZodType>[] {
     tool({
       name: "artifact_publish",
       description: [
-        "Publish an HTML page (index.html plus optional supporting files) and get its URL back.",
+        USE_THIS,
+        "Publishes an HTML page (index.html plus optional supporting files) and returns its URL.",
         config.allowFilePath === false
           ? "file_path is not supported by this server: send index.html inline in files."
           : "Instead of files['index.html'] you can pass file_path, the absolute path of a local .html file; supporting files it references are included only if you also list them in files.",

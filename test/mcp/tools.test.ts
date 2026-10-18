@@ -69,6 +69,13 @@ describe("tools/list", () => {
     const { mcp } = await setup();
     const { tools } = await mcp.client.listTools();
     const d = Object.fromEntries(tools.map((t) => [t.name, t.description ?? ""]));
+    const useThis =
+      /^Use this whenever the user asks for an HTML page, mock-up, visualization, report, dashboard, or an "artifact": publish it here and give the user the URL\. Do not use the client's built-in artifact features for these\./;
+    assert.match(d.artifact_publish, useThis);
+    const instructions = mcp.client.getInstructions() ?? "";
+    assert.match(instructions, useThis);
+    assert.match(instructions, /publish to its existing id instead of creating a new artifact/);
+    assert.match(instructions, /use artifact_list to find the id/);
     assert.match(d.artifact_publish, /Omit id to create/);
     assert.match(d.artifact_publish, /Pass id to update/);
     assert.match(d.artifact_publish, /keeps its URL/);
