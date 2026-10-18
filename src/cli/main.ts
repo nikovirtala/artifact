@@ -7,6 +7,7 @@ import { homedir } from "node:os";
 import { SERVE_USAGE } from "../config.ts";
 import * as init from "./init.ts";
 import * as list from "./list.ts";
+import * as mcp from "./mcp.ts";
 import * as open from "./open.ts";
 import {
   type CliContext,
@@ -42,16 +43,6 @@ const command = (
   module: { USAGE: string; run: Command["run"] },
 ): Command => ({ name, summary, usage: module.USAGE, run: module.run });
 
-const notImplemented = (name: string, synopsis: string, summary: string): Command => ({
-  name,
-  summary,
-  usage: `Usage: artifact ${name} ${synopsis}\n`,
-  run: async (_args, ctx) => {
-    ctx.stderr.write(`artifact: '${name}' is not implemented yet\n`);
-    return EXIT.error;
-  },
-});
-
 const commands: readonly Command[] = [
   {
     name: "serve",
@@ -66,7 +57,7 @@ const commands: readonly Command[] = [
   command("rollback", "Move the current pointer to an earlier version", rollback),
   command("rm", "Delete an artifact and all its versions", rm),
   command("init", "Add the agent instructions to CLAUDE.md / AGENTS.md", init),
-  notImplemented("mcp", "[options]", "stdio MCP bridge to the running server"),
+  command("mcp", "stdio MCP bridge to the running server", mcp),
 ];
 
 function synopsis(command: Command): string {
