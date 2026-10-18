@@ -615,3 +615,67 @@ describe("ArtifactService.delete and list", () => {
     }
   });
 });
+
+describe("ArtifactService projects", () => {
+  const A = "git@github.com:acme/a.git";
+  const B = "https://github.com/acme/b";
+  const files = { "index.html": "x" };
+
+  it("stores the normalised project on create and returns it", async () => {
+    const { service, store } = harness();
+    const created = unwrap(await service.publish({ project: A, files }));
+    assert.deepEqual(created, { id: created.id, version: 1, project: "github.com/acme/a" });
+    const meta = JSON.parse(
+      text((await store.get(`artifacts/${created.id}/meta.json`)) ?? new Uint8Array()),
+    );
+    assert.equal(meta.project, "github.com/acme/a");
+    assert.equal(unwrap(await service.read(created.id)).project, "github.com/acme/a");
+    const none = unwrap(await service.publish({ files }));
+    assert.deepEqual(Object.keys(none).sort(), ["id", "version"]);
+  });
+
+  it("an update keeps the stored project, whatever it passes", async () => {
+    const { service } = harness();
+    const { id } = unwrap(await service.publish({ project: A, files }));
+    const other = unwrap(await service.publish({ id, project: B, files }));
+    assert.deepEqual(other, { id, version: 2, project: "github.com/acme/a" });
+    const omitted = unwrap(await service.publish({ id, files }));
+    assert.equal(omitted.project, "github.com/acme/a");
+    const plain = unwrap(await service.publish({ files }));
+    const later = unwrap(await service.publish({ id: plain.id, project: A, files }));
+    assert.equal(later.project, undefined);
+    assert.equal(unwrap(await service.read(plain.id)).project, undefined);
+    const bad = await service.publish({ id, project: "nope", files });
+    assert.ok(!bad.ok);
+    assert.equal(bad.error.code, "invalid_input");
+  });
+
+  it("list filters by the normalised project; all and no project list everything", async () => {
+    const { service, clock } = harness();
+    const a = unwrap(await service.publish({ project: A, files }));
+    clock.advance(1000);
+    const b = unwrap(await service.publish({ project: B, files }));
+    clock.advance(1000);
+    const none = unwrap(await service.publish({ files }));
+    const ids = async (options: Parameters<typeof service.list>[0]) =>
+      unwrap(await service.list(options)).map((s) => s.id);
+    assert.deepEqual(await ids({ project: "https://github.com/ACME/a.git" }), [a.id]);
+    assert.deepEqual(await ids({ project: "github.com/acme/b" }), [b.id]);
+    assert.deepEqual(await ids({ project: "github.com/acme" }), []);
+    assert.deepEqual(await ids({ project: A, all: true }), [none.id, b.id, a.id]);
+    assert.deepEqual(await ids({}), [none.id, b.id, a.id]);
+    assert.deepEqual(await ids({ project: A, limit: 1 }), [a.id]);
+    assert.equal(unwrap(await service.list({ project: A }))[0].project, "github.com/acme/a");
+    const bad = await service.list({ project: "" });
+    assert.ok(!bad.ok);
+    assert.equal(bad.error.code, "invalid_input");
+  });
+
+  it("validates project before writing anything", async () => {
+    const { service, store } = harness();
+    const r = await service.publish({ project: "local:relative", files });
+    assert.ok(!r.ok);
+    assert.equal(r.error.code, "invalid_input");
+    assert.deepEqual((await store.list("")).keys, []);
+  });
+});
