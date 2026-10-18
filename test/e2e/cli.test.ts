@@ -476,3 +476,69 @@ describe("artifact list, read, open (e2e)", () => {
     });
   });
 });
+
+describe("artifact rollback and rm (e2e)", () => {
+  let server: Server;
+  before(async () => {
+    server = await startServer();
+  });
+
+  async function twoVersions(): Promise<{ id: string; url: string }> {
+    const dir = siteDir({ "one.html": "<p>one</p>", "two.html": "<p>two</p>" });
+    const created = JSON.parse(
+      (await ok(cli(server, ["publish", join(dir, "one.html"), "--json"]))).stdout.toString(),
+    );
+    await ok(cli(server, ["publish", join(dir, "two.html"), "--id", created.id]));
+    return created;
+  }
+
+  it("rolls back to an earlier version", async () => {
+    const { id, url } = await twoVersions();
+    const result = await ok(cli(server, ["rollback", id, "1"]));
+    assert.equal(result.stdout.toString(), `${url}\n`);
+    assert.equal(result.stderr, `rolled back ${id} to version 1\n`);
+    assert.equal((await getJson(server, `/api/artifacts/${id}`)).body.currentVersion, 1);
+    assert.match(await (await fetch(`${server.base}/a/${id}/`)).text(), /^<p>one<\/p><script/);
+
+    const json = JSON.parse(
+      (await ok(cli(server, ["rollback", id, "2", "--json"]))).stdout.toString(),
+    );
+    assert.deepEqual(json, { id, version: 2, url });
+    const missing = await cli(server, ["rollback", id, "9"]);
+    assert.equal(missing.status, 1);
+    assert.match(missing.stderr, /^error: not_found: /);
+    for (const args of [
+      ["rollback", id, "x"],
+      ["rollback", id, "0"],
+      ["rollback", id],
+    ]) {
+      assert.equal((await cli(server, args)).status, 2, args.join(" "));
+    }
+  });
+
+  it("rm needs --yes without a TTY, then deletes; a second rm is not_found", async () => {
+    const { id } = await twoVersions();
+    const refused = await cli(server, ["rm", id]);
+    assert.equal(refused.status, 2);
+    assert.match(refused.stderr, /^artifact rm: stdin is not a terminal; pass --yes/);
+    assert.equal((await getJson(server, `/api/artifacts/${id}`)).status, 200);
+
+    const deleted = await ok(cli(server, ["rm", id, "--yes"]));
+    assert.equal(deleted.stdout.toString(), `deleted ${id}\n`);
+    assert.equal((await getJson(server, `/api/artifacts/${id}`)).status, 404);
+    const again = await cli(server, ["rm", id, "--yes"]);
+    assert.equal(again.status, 1);
+    assert.match(again.stderr, /^error: not_found: /);
+    const againJson = await cli(server, ["rm", id, "--yes", "--json"]);
+    assert.equal(againJson.status, 1);
+    assert.equal(againJson.stdout.length, 0);
+    assert.equal(JSON.parse(againJson.stderr).error, "not_found");
+    const refusedJson = await cli(server, ["rm", id, "--json"]);
+    assert.equal(refusedJson.status, 2);
+    assert.match(refusedJson.stderr, /^artifact rm: stdin is not a terminal; pass --yes/);
+
+    const other = await twoVersions();
+    const json = await ok(cli(server, ["rm", other.id, "--yes", "--json"]));
+    assert.deepEqual(JSON.parse(json.stdout.toString()), { ok: true });
+  });
+});

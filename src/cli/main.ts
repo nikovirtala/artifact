@@ -18,6 +18,8 @@ import {
 } from "./output.ts";
 import * as publish from "./publish.ts";
 import * as read from "./read.ts";
+import * as rm from "./rm.ts";
+import * as rollback from "./rollback.ts";
 import { runServe } from "./serve.ts";
 
 type Command = {
@@ -60,12 +62,8 @@ const commands: readonly Command[] = [
   command("list", "List artifacts", list),
   command("read", "Print an artifact's files", read),
   command("open", "Open an artifact in the browser", open),
-  notImplemented(
-    "rollback",
-    "<id> <version> [options]",
-    "Move the current pointer to an earlier version",
-  ),
-  notImplemented("rm", "<id> [options]", "Delete an artifact and all its versions"),
+  command("rollback", "Move the current pointer to an earlier version", rollback),
+  command("rm", "Delete an artifact and all its versions", rm),
   notImplemented("init", "[options]", "Add the agent instructions to CLAUDE.md / AGENTS.md"),
   notImplemented("mcp", "[options]", "stdio MCP bridge to the running server"),
 ];
