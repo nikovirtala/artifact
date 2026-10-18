@@ -5,6 +5,7 @@
 import { createRequire } from "node:module";
 import { homedir } from "node:os";
 import { SERVE_USAGE } from "../config.ts";
+import * as init from "./init.ts";
 import * as list from "./list.ts";
 import * as open from "./open.ts";
 import {
@@ -64,7 +65,7 @@ const commands: readonly Command[] = [
   command("open", "Open an artifact in the browser", open),
   command("rollback", "Move the current pointer to an earlier version", rollback),
   command("rm", "Delete an artifact and all its versions", rm),
-  notImplemented("init", "[options]", "Add the agent instructions to CLAUDE.md / AGENTS.md"),
+  command("init", "Add the agent instructions to CLAUDE.md / AGENTS.md", init),
   notImplemented("mcp", "[options]", "stdio MCP bridge to the running server"),
 ];
 
