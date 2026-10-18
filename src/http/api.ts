@@ -14,7 +14,7 @@ import {
 } from "../schemas.ts";
 import type { AppDeps } from "./app.ts";
 import { badRequest, httpError, jsonError } from "./errors.ts";
-import { type AppEnv, originGuard, parseIfMatch, tokenGuard } from "./guards.ts";
+import { type AppEnv, browserGuard, parseIfMatch, tokenGuard } from "./guards.ts";
 import { API_FILE_CSP } from "./headers.ts";
 import { artifactUrl } from "./urls.ts";
 
@@ -89,7 +89,7 @@ export function createApi(deps: AppDeps): Hono<AppEnv> {
   };
 
   const api = new Hono<AppEnv>();
-  api.use(originGuard(config.port));
+  api.use(browserGuard());
   api.use(tokenGuard(config.token));
   api.use(async (c, next) => {
     await next();

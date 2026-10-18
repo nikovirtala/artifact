@@ -4,10 +4,11 @@ import { Hono } from "hono";
 import { errorBody, httpError, statusFor } from "../../src/http/errors.ts";
 import {
   type AppEnv,
+  browserGuard,
   classifyHost,
   hasUnsafeSegment,
   hostGuard,
-  originGuard,
+  isBrowserRequest,
   parseIfMatch,
   tokenGuard,
   traversalGuard,
@@ -114,6 +115,17 @@ describe("parseIfMatch", () => {
   });
 });
 
+describe("isBrowserRequest", () => {
+  it("is true for any Origin or a Sec-Fetch-Site other than none", () => {
+    const is = (h: Record<string, string>) => isBrowserRequest(new Headers(h));
+    assert.equal(is({ origin: "null" }), true);
+    assert.equal(is({ "sec-fetch-site": "same-origin" }), true);
+    assert.equal(is({ "sec-fetch-site": "none" }), false);
+    assert.equal(is({ "sec-fetch-mode": "cors", "user-agent": "node" }), false);
+    assert.equal(is({}), false);
+  });
+});
+
 describe("error body", () => {
   it("maps codes to statuses and renames code to error", () => {
     assert.deepEqual(errorBody(httpError("version_conflict", "conflict", { currentVersion: 2 })), {
@@ -131,7 +143,7 @@ function app(token?: string) {
   const a = new Hono<AppEnv>();
   a.use(hostGuard(4400));
   a.use(traversalGuard());
-  a.use("/api/*", originGuard(4400));
+  a.use("/api/*", browserGuard());
   a.use("/api/*", tokenGuard(token));
   a.get("*", (c) => c.text("ok"));
   return a;
@@ -156,21 +168,35 @@ describe("guard middleware", () => {
     assert.equal((await api.json()).error, "bad_request");
   });
 
-  it("allows only localhost origins on /api", async () => {
-    for (const origin of ["http://localhost:4400", "http://127.0.0.1:4400", "http://[::1]:4400"]) {
-      const res = await app().request("http://localhost:4400/api/x", { headers: { origin } });
-      assert.equal(res.status, 200, origin);
+  it("refuses every browser request on /api: any Origin, Sec-Fetch-Site other than none", async () => {
+    for (const headers of [
+      { origin: "http://localhost:4400" },
+      { origin: "http://127.0.0.1:4400" },
+      { origin: "http://[::1]:4400" },
+      { origin: `http://${id}.localhost:4400` },
+      { origin: "http://evil.example" },
+      { origin: "null" },
+      { origin: "" },
+      { origin: "http://localhost:4400", "sec-fetch-site": "none" },
+      { "sec-fetch-site": "same-origin" },
+      { "sec-fetch-site": "same-site" },
+      { "sec-fetch-site": "cross-site" },
+      { "sec-fetch-site": "" },
+    ] as Record<string, string>[]) {
+      const res = await app().request("http://localhost:4400/api/x", { headers });
+      assert.equal(res.status, 403, JSON.stringify(headers));
+      assert.deepEqual(await res.json(), {
+        error: "forbidden",
+        message: "the API is not available to web pages; use the CLI or an MCP client",
+      });
     }
-    for (const origin of [
-      `http://${id}.localhost:4400`,
-      "http://localhost:4401",
-      "https://localhost:4400",
-      "http://evil.example",
-      "null",
-    ]) {
-      const res = await app().request("http://localhost:4400/api/x", { headers: { origin } });
-      assert.equal(res.status, 403, origin);
-      assert.equal((await res.json()).error, "forbidden");
+    for (const headers of [
+      {},
+      { "sec-fetch-site": "none" },
+      { "sec-fetch-mode": "cors" },
+    ] as Record<string, string>[]) {
+      const res = await app().request("http://localhost:4400/api/x", { headers });
+      assert.equal(res.status, 200, JSON.stringify(headers));
     }
     const viewing = await app().request("http://localhost:4400/x", {
       headers: { origin: "http://evil.example" },

@@ -1,5 +1,5 @@
 // Request guards (docs/decisions/0027), applied in order: Host and traversal on every route,
-// then Origin and bearer token on /api and /mcp.
+// then browser requests (docs/decisions/0037) and bearer token on /api and /mcp.
 import { createHash, timingSafeEqual } from "node:crypto";
 import type { HttpBindings } from "@hono/node-server";
 import type { Context, MiddlewareHandler } from "hono";
@@ -95,16 +95,27 @@ export function traversalGuard(csp?: string): MiddlewareHandler<AppEnv> {
   };
 }
 
-export function originGuard(port: number): MiddlewareHandler<AppEnv> {
-  const allowed = new Set([
-    `http://localhost:${port}`,
-    `http://127.0.0.1:${port}`,
-    `http://[::1]:${port}`,
-  ]);
+/**
+ * True if a web page made the request (docs/decisions/0037): browsers send `Origin` on
+ * cross-origin and non-GET requests and `Sec-Fetch-Site` on every request to localhost;
+ * `Sec-Fetch-Site: none` is the user typing the URL. Non-browser clients send neither (Node's
+ * fetch sends only `Sec-Fetch-Mode: cors`, which does not count).
+ */
+export function isBrowserRequest(headers: Headers): boolean {
+  const site = headers.get("sec-fetch-site");
+  return headers.has("origin") || (site !== null && site !== "none");
+}
+
+/** `/api` and `/mcp` are for the CLI, scripts and MCP clients; web pages get 403. */
+export function browserGuard(): MiddlewareHandler<AppEnv> {
   return async (c, next) => {
-    const origin = c.req.header("Origin");
-    if (origin !== undefined && !allowed.has(origin)) {
-      return jsonError(httpError("forbidden", `origin ${JSON.stringify(origin)} is not allowed`));
+    if (isBrowserRequest(c.req.raw.headers)) {
+      return jsonError(
+        httpError(
+          "forbidden",
+          "the API is not available to web pages; use the CLI or an MCP client",
+        ),
+      );
     }
     await next();
   };

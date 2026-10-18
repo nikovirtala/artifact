@@ -12,9 +12,9 @@ import { httpError, jsonError } from "./errors.ts";
 import { renderGallery } from "./gallery.ts";
 import {
   type AppEnv,
+  browserGuard,
   hostGuard,
   isApiPath,
-  originGuard,
   tokenGuard,
   traversalGuard,
 } from "./guards.ts";
@@ -90,9 +90,9 @@ export function createApp(deps: AppDeps): Hono<AppEnv> {
 
   app.route("/api", createApi(deps));
 
-  // MCP behind the same Origin and token guards as /api (docs/decisions/0027).
+  // MCP behind the same browser and token guards as /api (docs/decisions/0027, 0037).
   const mcp = createMcpHandler({ service, config });
-  app.use(MCP_PATH, originGuard(config.port), tokenGuard(config.token));
+  app.use(MCP_PATH, browserGuard(), tokenGuard(config.token));
   app.all(MCP_PATH, (c) => mcp(c.req.raw));
 
   app.get("/", async () => {

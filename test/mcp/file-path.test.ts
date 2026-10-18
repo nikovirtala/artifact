@@ -95,33 +95,6 @@ describe("artifact_publish file_path", () => {
     assert.equal(neither.value.error, "invalid_request");
   });
 
-  it("is rejected from browser callers (Origin or Sec-Fetch-Site), not Sec-Fetch-Mode", async () => {
-    const path = file("secret.html", "<p>secret</p>");
-    for (const headers of [
-      { origin: "http://localhost:4400" },
-      { "sec-fetch-site": "same-origin" },
-    ] as Record<string, string>[]) {
-      const handler = createMcpHandler({
-        service: harness().service,
-        config: { port: 4400, isolation: "subdomain" },
-      });
-      const mcp = await connectMcp("http://localhost:4400/mcp", { handler, headers });
-      const r = await mcp.call("artifact_publish", { file_path: path });
-      assert.equal(r.isError, true, JSON.stringify(headers));
-      assert.deepEqual([r.value.error, r.value.field], ["invalid_input", "file_path"]);
-      assert.match(String(r.value.message), /not accepted from browser pages/);
-    }
-    // Node's fetch (and so Node-based agents) sends Sec-Fetch-Mode: cors.
-    const agent = await connectMcp("http://localhost:4400/mcp", {
-      handler: createMcpHandler({
-        service: harness().service,
-        config: { port: 4400, isolation: "subdomain" },
-      }),
-      headers: { "sec-fetch-mode": "cors" },
-    });
-    assert.equal((await agent.call("artifact_publish", { file_path: path })).isError, false);
-  });
-
   it("is rejected with a clear error when disabled; inline files still work", async () => {
     const mcp = await setup(false);
     const r = await mcp.call("artifact_publish", { file_path: file("off.html", "<p>off</p>") });
