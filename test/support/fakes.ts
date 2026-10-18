@@ -64,9 +64,9 @@ export function harness(
     maxAttempts?: number;
   } = {},
 ): Harness {
-  const store = createMemoryStore();
-  const notifier = options.notifier ?? recordingNotifier();
   const clock = fakeClock();
+  const store = createMemoryStore({ now: () => clock.now() });
+  const notifier = options.notifier ?? recordingNotifier();
   const service = new ArtifactService({
     blobs: options.blobs ?? store,
     pointers: options.pointers ?? store,

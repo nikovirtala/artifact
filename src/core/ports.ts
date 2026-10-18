@@ -13,9 +13,14 @@ export type ListOptions = {
   delimiter?: string;
 };
 
+/** A listed key with the time it was last written (S3 `Contents[].LastModified`). */
+export type ListedObject = { key: string; lastModified: Date };
+
 export type ListResult = {
   /** Keys starting with the prefix (and, with a delimiter, not containing it after the prefix), sorted. */
   keys: string[];
+  /** The same keys in the same order, each with its last write time. */
+  objects: ListedObject[];
   /** With a delimiter: distinct `prefix + segment + delimiter` values that have at least one key, sorted. */
   commonPrefixes: string[];
 };

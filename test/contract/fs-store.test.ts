@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it } from "node:test";
@@ -47,6 +47,7 @@ describe("fs store on disk", () => {
       ]);
       assert.deepEqual(await store.list("", { delimiter: "/" }), {
         keys: [],
+        objects: [],
         commonPrefixes: ["artifacts/"],
       });
       assert.deepEqual((await store.list(".l", { delimiter: "/" })).keys, []);
@@ -70,6 +71,28 @@ describe("fs store on disk", () => {
         ),
       );
       assert.equal(results.filter((r) => r.ok).length, 1);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("reports each file's mtime as lastModified", async () => {
+    const root = await tempRoot();
+    try {
+      const store = createFsStore({ root });
+      await store.put("artifacts/x/v/1/src/index.html", new Uint8Array([1]));
+      await store.put("artifacts/x/v/2/src/index.html", new Uint8Array([2]));
+      const hourAgo = new Date(Date.now() - 60 * 60 * 1000);
+      await utimes(join(root, "artifacts/x/v/1/src/index.html"), hourAgo, hourAgo);
+      const { objects } = await store.list("artifacts/x/v/");
+      assert.deepEqual(
+        objects.map((o) => o.key),
+        ["artifacts/x/v/1/src/index.html", "artifacts/x/v/2/src/index.html"],
+      );
+      assert.ok(Math.abs(objects[0].lastModified.getTime() - hourAgo.getTime()) < 1000);
+      assert.ok(Date.now() - objects[1].lastModified.getTime() < 60 * 1000);
+      const level = await store.list("artifacts/x/v/1/src/", { delimiter: "/" });
+      assert.ok(Math.abs(level.objects[0].lastModified.getTime() - hourAgo.getTime()) < 1000);
     } finally {
       await rm(root, { recursive: true, force: true });
     }

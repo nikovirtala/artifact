@@ -7,10 +7,21 @@
 // The lock is in-process; one server process per root is assumed (see docs/decisions).
 import { createHash, randomUUID } from "node:crypto";
 import type { Dirent } from "node:fs";
-import { mkdir, open, readdir, readFile, rename, rmdir, unlink, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  open,
+  readdir,
+  readFile,
+  rename,
+  rmdir,
+  stat,
+  unlink,
+  writeFile,
+} from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import type {
   BlobStore,
+  ListedObject,
   ListOptions,
   ListResult,
   PointerObject,
@@ -18,7 +29,7 @@ import type {
   WriteCondition,
   WriteResult,
 } from "../core/ports.ts";
-import { assertValidKey, assertValidPrefix, groupByDelimiter } from "./keys.ts";
+import { assertValidKey, assertValidPrefix, byKey, groupByDelimiter } from "./keys.ts";
 
 export type FsStore = BlobStore & PointerStore;
 
@@ -153,12 +164,30 @@ export function createFsStore(options: FsStoreOptions): FsStore {
     }
   }
 
-  async function walk(dir: string, keyPrefix: string, out: string[]): Promise<void> {
+  // A file deleted between readdir and stat is skipped, as if listed a moment later.
+  async function listed(file: string, key: string): Promise<ListedObject | undefined> {
+    try {
+      return { key, lastModified: (await stat(file)).mtime };
+    } catch (error) {
+      if (["ENOENT", "ENOTDIR"].includes(code(error) ?? "")) return undefined;
+      throw error;
+    }
+  }
+
+  async function walk(
+    dir: string,
+    keyPrefix: string,
+    prefix: string,
+    out: ListedObject[],
+  ): Promise<void> {
     for (const entry of await entries(dir)) {
       if (keyPrefix === "" && isReserved(entry.name)) continue;
       const key = keyPrefix + entry.name;
-      if (entry.isFile()) out.push(key);
-      else if (entry.isDirectory()) await walk(join(dir, entry.name), `${key}/`, out);
+      if (entry.isFile()) {
+        if (!key.startsWith(prefix)) continue;
+        const object = await listed(join(dir, entry.name), key);
+        if (object) out.push(object);
+      } else if (entry.isDirectory()) await walk(join(dir, entry.name), `${key}/`, prefix, out);
     }
   }
 
@@ -192,22 +221,24 @@ export function createFsStore(options: FsStoreOptions): FsStore {
       const dir = join(root, ...dirKey.split("/").filter(Boolean));
       if (opts?.delimiter === "/") {
         // One directory level: files are keys, non-empty directories are common prefixes.
-        const keys: string[] = [];
+        const objects: ListedObject[] = [];
         const commonPrefixes: string[] = [];
         for (const entry of await entries(dir)) {
           if (!entry.name.startsWith(namePrefix) || (dirKey === "" && isReserved(entry.name)))
             continue;
-          if (entry.isFile()) keys.push(dirKey + entry.name);
-          else if (entry.isDirectory() && (await hasFile(join(dir, entry.name)))) {
+          if (entry.isFile()) {
+            const object = await listed(join(dir, entry.name), dirKey + entry.name);
+            if (object) objects.push(object);
+          } else if (entry.isDirectory() && (await hasFile(join(dir, entry.name)))) {
             commonPrefixes.push(`${dirKey}${entry.name}/`);
           }
         }
-        return { keys: keys.sort(), commonPrefixes: commonPrefixes.sort() };
+        objects.sort(byKey);
+        return { keys: objects.map((o) => o.key), objects, commonPrefixes: commonPrefixes.sort() };
       }
-      const all: string[] = [];
-      await walk(dir, dirKey, all);
-      const keys = all.filter((k) => k.startsWith(prefix)).sort();
-      return groupByDelimiter(prefix, keys, opts?.delimiter);
+      const all: ListedObject[] = [];
+      await walk(dir, dirKey, prefix, all);
+      return groupByDelimiter(prefix, all.sort(byKey), opts?.delimiter);
     },
 
     async delete(key: string): Promise<void> {
