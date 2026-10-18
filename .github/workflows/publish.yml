@@ -1,0 +1,85 @@
+# Publishes to npm through trusted publishing (OIDC) when main has a version that is not on npm yet.
+# npm validates this filename: renaming it breaks publishing (docs/decisions/0049, RELEASING.md).
+name: Publish
+
+on:
+  push:
+    branches: [main]
+
+# Serialise publishes and never cancel one mid-way.
+concurrency:
+  group: publish
+  cancel-in-progress: false
+
+permissions: {}
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    outputs:
+      version: ${{ steps.plan.outputs.version }}
+      tag: ${{ steps.plan.outputs.tag }}
+      published: ${{ steps.publish.outcome == 'success' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      # pnpm comes from "packageManager" in package.json; Node is the major pinned in mise.toml.
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24"
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+      - name: Ensure npm supports trusted publishing
+        run: |
+          npm --version
+          node scripts/release-check.ts npm || {
+            npm install -g npm@^11
+            node scripts/release-check.ts npm
+          }
+      - name: Plan
+        id: plan
+        run: node scripts/release-check.ts plan
+      - if: steps.plan.outputs.publish == 'true'
+        run: pnpm install --frozen-lockfile
+      - if: steps.plan.outputs.publish == 'true'
+        run: pnpm check
+      - if: steps.plan.outputs.publish == 'true'
+        run: pnpm test:pack
+      - if: steps.plan.outputs.publish == 'true'
+        run: pnpm build
+      # check and build already ran above, so skip prepublishOnly. Provenance is automatic.
+      - name: Publish to npm
+        id: publish
+        if: steps.plan.outputs.publish == 'true'
+        env:
+          DIST_TAG: ${{ steps.plan.outputs.tag }}
+        run: npm publish --ignore-scripts --tag "$DIST_TAG"
+
+  release:
+    needs: publish
+    if: needs.publish.outputs.published == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ needs.publish.outputs.version }}
+          DIST_TAG: ${{ needs.publish.outputs.tag }}
+        run: |
+          if gh release view "v$VERSION" >/dev/null 2>&1; then
+            echo "release v$VERSION already exists" | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          prerelease=()
+          if [ "$DIST_TAG" = next ]; then prerelease=(--prerelease); fi
+          gh release create "v$VERSION" --target "$GITHUB_SHA" --title "v$VERSION" --generate-notes "${prerelease[@]}"
+          echo "released v$VERSION" | tee -a "$GITHUB_STEP_SUMMARY"
