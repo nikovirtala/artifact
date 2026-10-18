@@ -49,9 +49,9 @@ Notes:
 With the server running, connect Claude Code:
 
 ```sh
-claude mcp add --transport http artifacts http://localhost:4400/mcp
+claude mcp add --scope user --transport http artifacts http://localhost:4400/mcp
 # with ARTIFACT_TOKEN set:
-claude mcp add --transport http artifacts http://localhost:4400/mcp --header "Authorization: Bearer $ARTIFACT_TOKEN"
+claude mcp add --scope user --transport http artifacts http://localhost:4400/mcp --header "Authorization: Bearer $ARTIFACT_TOKEN"
 ```
 
 Then tell the agent to use it. **This step is required in Claude Code:** its built-in `Artifact` tool takes priority over any MCP tool description, so without the instruction Claude publishes to claude.ai instead. Paste this into `~/.claude/CLAUDE.md` (every project), a project's `CLAUDE.md`, or `AGENTS.md`:
@@ -60,9 +60,15 @@ Then tell the agent to use it. **This step is required in Claude Code:** its bui
 For HTML pages, mock-ups, visualizations, reports, dashboards and "artifacts", use the `artifacts` MCP server (`artifact_publish`) instead of the built-in Artifact tool, and give me the URL. Reuse ids via `artifact_list` instead of creating duplicates. Pass `project` on every call, derived as the tool describes (`git remote get-url origin`, else `local:` + the git toplevel, else `local:` + the working directory).
 ```
 
-If Claude still reaches for the built-in tool, block it in `~/.claude/settings.json` with `{"permissions": {"deny": ["Artifact"]}}` (deny rules always win; not yet verified for this tool, and it disables the built-in feature everywhere until removed).
+If Claude still reaches for the built-in tool, block it in `~/.claude/settings.json` with `{"permissions": {"deny": ["Artifact"]}}` (deny rules always win; not yet verified for this tool, and it disables the built-in feature everywhere until removed). `artifact init --global --deny-builtin` adds it for you.
 
-To pin the project, add a line such as ``Use `project: "github.com/you/repo"` for the artifacts tools.`` (`artifact init`, planned for M5, will write this block).
+To pin the project, add a line such as:
+
+```md
+For this codebase, pass exactly `project: "github.com/you/repo"` on every artifacts tool call.
+```
+
+`artifact init` writes the snippet and this line for the current repository into its `CLAUDE.md` and/or `AGENTS.md`; `artifact init --global` writes the snippet alone to `~/.claude/CLAUDE.md`. Re-running it updates the block in place.
 
 Any MCP client that speaks Streamable HTTP can use `http://localhost:4400/mcp`. The endpoint is stateless (no sessions) and has the same browser and token guards as `/api`.
 
