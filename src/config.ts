@@ -23,7 +23,8 @@ export type ServeConfig = {
 export type ServeConfigResult =
   | { ok: true; help: true }
   | { ok: true; help?: false; config: ServeConfig; warnings: string[] }
-  | { ok: false; message: string };
+  /** `usage`: a bad flag (exit 2, docs/decisions/0041); otherwise the environment (exit 1). */
+  | { ok: false; message: string; usage?: true };
 
 export type Env = Readonly<Record<string, string | undefined>>;
 
@@ -76,7 +77,7 @@ export function autoOpen(options: {
 }
 
 /** Empty strings count as unset. */
-function envValue(env: Env, name: string): string | undefined {
+export function envValue(env: Env, name: string): string | undefined {
   const value = env[name];
   return value === undefined || value === "" ? undefined : value;
 }
@@ -110,7 +111,7 @@ export function resolveServeConfig(
       },
     }));
   } catch (error) {
-    return { ok: false, message: `artifact serve: ${(error as Error).message}` };
+    return { ok: false, message: `artifact serve: ${(error as Error).message}`, usage: true };
   }
   if (values.help) return { ok: true, help: true };
   const str = (name: string) => values[name] as string | undefined;
@@ -122,6 +123,7 @@ export function resolveServeConfig(
     return {
       ok: false,
       message: `artifact serve: ${portSource} must be an integer from 1 to 65535, got ${JSON.stringify(rawPort)}`,
+      ...(portSource === "--port" ? { usage: true as const } : {}),
     };
   }
 
@@ -130,6 +132,7 @@ export function resolveServeConfig(
     return {
       ok: false,
       message: `artifact serve: --isolation must be "subdomain" or "path", got ${JSON.stringify(isolation)}`,
+      usage: true,
     };
   }
 
