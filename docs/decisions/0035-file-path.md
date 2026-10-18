@@ -19,3 +19,7 @@ The spec lets `artifact_publish` take `file_path` (a local HTML file) or a `file
 ## Consequences
 
 A non-browser MCP client can make the server read any `.html` file the server user can read and publish it to loopback viewers. That is the same trust the local agent already has; with `--host` off loopback, `ARTIFACT_TOKEN` is required (0011) before `/mcp` can be called at all. Artifact pages can still call the other tools from path-mode URLs, as they can call `/api` (0027), but they cannot reach the disk.
+
+## Update (M4 follow-up)
+
+The "Not from browser pages" rule moved to the guards: every request with `Origin` or a `Sec-Fetch-Site` other than `none` gets 403 on `/mcp` before any tool runs ([0037](0037-no-browser-requests-to-api-and-mcp.md)), so the adapter no longer checks it. Path-mode pages can no longer call any tool.

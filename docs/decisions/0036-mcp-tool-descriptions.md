@@ -17,3 +17,11 @@ The tool descriptions (and the input field descriptions in `src/schemas.ts`) are
 ## Consequences
 
 Changing a rule means changing a description and its test together. Descriptions are kept to a few sentences each so they cost little context.
+
+## Update (M4 follow-up)
+
+Added rules, each checked by the test:
+
+- `instructions` and the start of `artifact_publish`: use this for HTML pages, mock-ups, visualizations, reports, dashboards and "artifacts"; publish here and give the URL; do not use the client's built-in artifact features ([0038](0038-tool-selection-wording.md)).
+- `artifact_publish` and `artifact_list`: pass `project` on every call; `artifact_list` returns only that project's artifacts; `all: true` only when the user asks about other projects; never ask about or act on artifacts outside the current project unless the user refers to them. The `project` field description says how to derive the value ([0039](0039-project-identifier-and-filtering.md)).
+- `artifact_publish`: if `opened` is true, tell the user the page is open in their browser; otherwise show the URL; never open it yourself ([0040](0040-auto-open-new-artifacts.md)).

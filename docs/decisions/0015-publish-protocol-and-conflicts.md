@@ -32,3 +32,7 @@ Following that order literally has a race. Two publishers that both read `latest
 - When the retries run out, the `version_conflict` message says so: `version conflict: gave up after <N> attempts due to concurrent publishes (current version is <c>); retry the same request without if_version`. In M4 the `artifact_publish` tool description gives the same advice.
 - `delete` stays pointer-first. The M5 orphan sweep must also remove `artifacts/<id>/` folders that have no `meta.json` (left by a crash during delete or before a first commit), skipping folders modified in the last few minutes so it never races a publish in progress.
 - M3: consider a `deleted` SSE event so open tabs learn that their artifact is gone. Done in M3 ([0029](0029-deleted-event.md)).
+
+## Update (M4 follow-up)
+
+`meta.json` gains an optional `project` (the normalised identifier, [0039](0039-project-identifier-and-filtering.md)), written on create and never changed afterwards: an update with a different project keeps the stored one.

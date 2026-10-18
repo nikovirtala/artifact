@@ -27,3 +27,12 @@ Status: Accepted (M4)
 ## Consequences
 
 Agents and scripts get one error vocabulary across the API and MCP. The MCP `limit` is a JSON number, so its range is a schema rule (`invalid_request`), where the API's query string answers `bad_request`.
+
+## Update (M4 follow-up)
+
+| Tool | Result |
+| --- | --- |
+| `artifact_publish` | `{id, version, url, project?, opened}` |
+| `artifact_list` | `{artifacts: [{id, title?, project?, currentVersion, updatedAt, url}]}` |
+
+`project` is the stored, normalised identifier ([0039](0039-project-identifier-and-filtering.md)); `opened` says whether the server started opening the URL in the browser ([0040](0040-auto-open-new-artifacts.md)), and is `false` for updates. The API's publish responses (`POST` and `PUT /api/artifacts…`) carry the same fields. Rollback, read and delete results are unchanged.

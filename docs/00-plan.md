@@ -36,11 +36,12 @@ An artifact is an id plus an ordered list of immutable versions and one pointer 
 | Entry page | `index.html` at the version root. Required. |
 | Supporting files | Any other relative paths in the same version (css, js, json, images, fonts). |
 | Label | Optional short name for a publish (≤ 60 chars), stored in the manifest and in `meta.json` `versions`. |
+| Project | Optional identifier of the codebase an artifact was made in, passed by the agent: a git remote URL or `local:<absolute path>`, normalised (for example `github.com/nikovirtala/artifact`). Set on create, never changed; `list` filters by it. See [0039](decisions/0039-project-identifier-and-filtering.md). |
 
 Key layout, identical on local disk and in S3 (local root defaults to `~/.artifacts/`):
 
 ```
-artifacts/<id>/meta.json                      # pointer: currentVersion, title, createdAt, updatedAt, versions[{version, createdAt, label?}]
+artifacts/<id>/meta.json                      # pointer: currentVersion, title, project?, createdAt, updatedAt, versions[{version, createdAt, label?}]
 artifacts/<id>/v/<n>/manifest.json            # files[{path, size, sha256, contentType}], label, createdAt
 artifacts/<id>/v/<n>/src/<path>               # files exactly as published (returned by read)
 artifacts/<id>/v/<n>/www/<path>               # served tree: html with the reload snippet injected, other files copied
@@ -75,39 +76,41 @@ Three entry points share one core service: the HTTP server (viewing + JSON API),
 | `GET http://localhost:4400/a/<id>/…` | Same as above in path mode, including `/a/<id>/v/<n>/…`; always mounted (fallback when `*.localhost` does not resolve) |
 | `GET /__artifact/reload.js` | The reload client script, on every allowed host ([0031](decisions/0031-reload-client.md)) |
 | `GET /__artifact/events?id=<id>` | SSE stream for one artifact; on `<id>.localhost` only that id; plain 404 for unknown ids ([0028](decisions/0028-sse-handshake-and-reconnect.md)–[0032](decisions/0032-events-unknown-id.md)) |
-| `GET http://localhost:4400/` | Gallery: artifacts newest first, title, version, updated, link ([0012](decisions/0012-gallery-in-v1.md)) |
+| `GET http://localhost:4400/` | Gallery: artifacts newest first, title, project, version, updated, link; `?project=` filters ([0012](decisions/0012-gallery-in-v1.md), [0039](decisions/0039-project-identifier-and-filtering.md)) |
 
 **HTTP: JSON API** (`/api`, same port)
 
 | Method + path | Body / headers | Result |
 | --- | --- | --- |
-| `GET /api/artifacts` | `?limit=` (1..500, default 50) | `{artifacts: [{id, title?, currentVersion, updatedAt, url}]}` |
+| `GET /api/artifacts` | `?limit=` (1..500, default 50), `?project=` | `{artifacts: [{id, title?, project?, currentVersion, updatedAt, url}]}`; with `project`, only that project's |
 | `GET /api/artifacts/:id` | — | Meta + version list + `url`; `ETag: "<currentVersion>"` |
 | `GET /api/artifacts/:id/files/*` | `?version=` | One `src/` file |
-| `POST /api/artifacts` | `{title?, label?, files: {path: "<utf8>" or {"base64": "<data>"}}}` | 201 `{id, version: 1, url}`; `ETag` |
-| `PUT /api/artifacts/:id` | same body + optional `if_version`; optional `If-Match: 3` or `"3"` | 200 `{id, version, url}` + `ETag`, or 409 `version_conflict` |
+| `POST /api/artifacts` | `{title?, label?, project?, open?, files: {path: "<utf8>" or {"base64": "<data>"}}}` | 201 `{id, version: 1, url, project?, opened}`; `ETag`; opens the URL unless `open: false` or auto-open is off |
+| `PUT /api/artifacts/:id` | same body + optional `if_version`; optional `If-Match: 3` or `"3"` | 200 `{id, version, url, project?, opened: false}` + `ETag`, or 409 `version_conflict`; `project` is the stored one |
 | `POST /api/artifacts/:id/rollback` | `{version}` | 200 `{id, version, url}` + `ETag`; pointer moved; emits a publish event |
 | `DELETE /api/artifacts/:id` | — | 204; removes all versions |
 
-Errors are `{"error": "<code>", "message": "…", …}`: 400 `bad_request` (malformed request, bad `If-Match` or query, URL traversal), 404 `not_found`, 409 `version_conflict` (`currentVersion`), 413 `too_large` (bytes only), 422 `invalid_request` (schema, bad base64), `invalid_path` (`path`) or `invalid_input` (`field`, `limit`). See [0021](decisions/0021-api-file-encoding.md)–[0023](decisions/0023-http-errors-and-list-limit.md).
+Errors are `{"error": "<code>", "message": "…", …}`: 400 `bad_request` (malformed request, bad `If-Match` or query, URL traversal), 404 `not_found`, 409 `version_conflict` (`currentVersion`), 413 `too_large` (bytes only), 422 `invalid_request` (schema, bad base64), `invalid_path` (`path`) or `invalid_input` (`field`, `limit`; for example `project`), and 403 `forbidden` for any request from a web page ([0037](decisions/0037-no-browser-requests-to-api-and-mcp.md)). See [0021](decisions/0021-api-file-encoding.md)–[0023](decisions/0023-http-errors-and-list-limit.md).
 
 **MCP tools** (Streamable HTTP at `/mcp`; connect Claude Code with `claude mcp add --transport http artifacts http://localhost:4400/mcp`)
 
 | Tool | Input | Output | Description the agent sees (key rule) |
 | --- | --- | --- | --- |
-| `artifact_publish` | `file_path` or `files` map, `id?`, `title?`, `label?`, `if_version?` | `{id, version, url}` | Omit `id` to create a new artifact. Pass `id` to update it in place and keep the URL. |
-| `artifact_list` | `limit?` | artifacts | Use to recover an id before updating instead of creating a duplicate. |
+| `artifact_publish` | `file_path` or `files` map, `id?`, `title?`, `label?`, `if_version?`, `project?` | `{id, version, url, project?, opened}` | Use for any HTML page or "artifact" instead of built-in features. Omit `id` to create a new artifact. Pass `id` to update it in place and keep the URL. Pass `project` on every call. |
+| `artifact_list` | `limit?`, `project?`, `all?` | artifacts | Use to recover an id before updating instead of creating a duplicate. Pass `project`; `all: true` only when the user asks about other projects. |
 | `artifact_read` | `id`, `version?`, `path?` | file contents + version | Read before editing an artifact this session did not publish. |
 | `artifact_rollback` | `id`, `version` | new pointer | Moves current back to an earlier version. |
 | `artifact_delete` | `id`, `confirm: true` | ok | Only when the user explicitly asks. |
 
 `file_path` accepts a local HTML file; sibling files referenced by relative paths are included only if listed in `files`. `file_path` is local-only and is rejected in the AWS deployment, where content must be sent inline.
 
-Refinements from M4 ([0033](decisions/0033-mcp-transport-and-sdk.md)–[0036](decisions/0036-mcp-tool-descriptions.md)):
+Refinements from M4 ([0033](decisions/0033-mcp-transport-and-sdk.md)–[0040](decisions/0040-auto-open-new-artifacts.md)):
 
-- Stateless: a fresh server and transport per `POST /mcp`, JSON responses, no session ids; `GET`/`DELETE /mcp` → 405. Same Origin and token guards as `/api`.
+- Stateless: a fresh server and transport per `POST /mcp`, JSON responses, no session ids; `GET`/`DELETE /mcp` → 405. Same browser and token guards as `/api`.
 - Inputs are the API body schemas from `src/schemas.ts` plus `id`; outputs are the API's objects (`artifact_read`: `{id, version, path, contentType, content}`, `content` a string or `{"base64"}`; `artifact_delete`: `{ok: true}`). Errors are tool results with `isError: true` carrying the API error body; schema failures are `invalid_request`.
-- `file_path` must be absolute and name an `.html`/`.htm` file; it becomes `index.html`, and `files` may add supporting files but not `index.html`. It is read by the MCP adapter (never the core), refused (`invalid_input`) on requests from browser pages (`Origin` or `Sec-Fetch-Site` present), and turned off with `allowFilePath: false`, which returns `invalid_input`.
+- `file_path` must be absolute and name an `.html`/`.htm` file; it becomes `index.html`, and `files` may add supporting files but not `index.html`. It is read by the MCP adapter (never the core) and turned off with `allowFilePath: false`, which returns `invalid_input`.
+- `project` (publish and list) is derived by the agent as the field description says: `git remote get-url origin`, else `local:` + `git rev-parse --show-toplevel`, else `local:` + the working directory ([0039](decisions/0039-project-identifier-and-filtering.md)).
+- A publish that creates an artifact opens its URL in the browser; `opened` tells the agent whether it did ([0040](decisions/0040-auto-open-new-artifacts.md)).
 
 **CLI: one binary for server and client** (`artifact`)
 
@@ -115,7 +118,7 @@ One executable does both jobs. `artifact serve` runs the server; every other com
 
 | Command | Role | Does |
 | --- | --- | --- |
-| `artifact serve [--port 4400] [--root ~/.artifacts] [--host] [--isolation subdomain or path] [--csp]` | server | Viewing routes, `/api`, `/mcp`, SSE. Env: `ARTIFACT_PORT`, `ARTIFACT_CSP`, `ARTIFACT_TOKEN` |
+| `artifact serve [--port 4400] [--root ~/.artifacts] [--host] [--isolation subdomain or path] [--csp] [--no-open]` | server | Viewing routes, `/api`, `/mcp`, SSE; opens new artifacts in the browser. Env: `ARTIFACT_PORT`, `ARTIFACT_CSP`, `ARTIFACT_TOKEN`, `ARTIFACT_OPEN=0`, `BROWSER=none` |
 | `artifact publish <file or dir> [--id] [--title] [--label]` | client | Creates or updates; prints the URL |
 | `artifact list`, `artifact read <id> [--version]`, `artifact open <id>` | client | Inspect; `open` launches the browser |
 | `artifact rollback <id> <version>`, `artifact rm <id>` | client | Move the pointer; delete |
@@ -185,9 +188,11 @@ The `core/` folder must not import from `adapters/`, `http/` or `mcp/`. Enforce 
 The server only ever listens on loopback, and each artifact gets its own browser origin so pages cannot read each other's storage.
 
 - **Loopback only.** Bind `127.0.0.1` and `::1` (IPv4-only with a warning if `::1` is unavailable). `--host <addr>` binds exactly that address; a non-loopback one requires `ARTIFACT_TOKEN` (otherwise the server refuses to start) and prints a warning. See [0027](decisions/0027-listeners-host-token-guards.md).
-- **DNS-rebinding guard.** Reject (403) requests whose `Host` is not `localhost`, `127.0.0.1`, `[::1]` or `<id>.localhost` (valid ULID id) on the configured port. For `/mcp` and `/api`, also reject a browser `Origin` that is not `http://localhost:<port>`, `http://127.0.0.1:<port>` or `http://[::1]:<port>`; `<id>.localhost` origins are rejected so artifact pages cannot call the API (the MCP spec asks servers to validate `Origin`).
+- **DNS-rebinding guard.** Reject (403) requests whose `Host` is not `localhost`, `127.0.0.1`, `[::1]` or `<id>.localhost` (valid ULID id) on the configured port.
+- **No web pages on `/api` and `/mcp`.** Reject (403 `forbidden`) every request that carries an `Origin` header (any value) or a `Sec-Fetch-Site` other than `none`, with or without `ARTIFACT_TOKEN`. Path-mode pages are same-origin with the API, so an Origin allowlist is not enough; the CLI, scripts and MCP clients send neither header (the MCP spec asks servers to validate `Origin`). See [0037](decisions/0037-no-browser-requests-to-api-and-mcp.md).
 - **Origin per artifact.** Default `isolation: subdomain` serves each artifact from `http://<id>.localhost:<port>`, so localStorage, IndexedDB and cookies are per artifact. Path mode shares one origin and is a documented fallback only.
 - **Optional token.** If `ARTIFACT_TOKEN` is set, `/api` and `/mcp` require `Authorization: Bearer <token>` (constant-time compare). Viewing routes stay open on loopback.
+- **Auto-open.** `serve` launches the browser with `spawn` and the URL as a separate argument, never through a shell; it is skipped over SSH, without a display and with a non-loopback `--host` ([0040](decisions/0040-auto-open-new-artifacts.md)).
 - **One server per root.** `serve` holds `<root>/.lock` (`{pid, port, startedAt}`); a live holder makes a second `serve` exit non-zero, a dead one is taken over. See [0026](decisions/0026-single-server-lockfile.md).
 - **Path safety.** Normalise every file path; reject absolute paths, `..` segments, backslashes, NUL, and anything that resolves outside the version directory; the first segments `v` and `__artifact` are reserved. Max 255 files per publish (`invalid_input`).
 - **Size limits.** 16 MB per file, 64 MB per publish. Return `too_large` with the limit; `too_large` is for bytes only, while file counts and label length return `invalid_input`.
@@ -223,11 +228,18 @@ Seven milestones (M0–M6), each shippable and verified before the next starts. 
    - [ ] "Change the heading" in the same session republishes to the same id; the open tab reloads.
    - [ ] In a new session, the agent finds the artifact via `artifact_list` and updates it instead of creating a duplicate.
    - Notes: the `artifact_publish` description says that a conflict after exhausted retries means "retry the same request without `if_version`"; the `artifact_read` description tells agents to edit the HTML returned by `artifact_read`, not the served page (which carries the injected reload tag).
+   - **M4 follow-up** (from the owner's Claude Code test, [0037](decisions/0037-no-browser-requests-to-api-and-mcp.md)–[0040](decisions/0040-auto-open-new-artifacts.md)):
+     - [ ] A path-mode page cannot call `/api` or `/mcp` (403 on `Origin` or `Sec-Fetch-Site` other than `none`); CLI and MCP SDK clients still work.
+     - [ ] The tool descriptions steer agents to publish HTML pages and "artifacts" here instead of built-in features; the README has a CLAUDE.md/AGENTS.md snippet.
+     - [ ] With `project` passed, `artifact_list` returns only that project's artifacts; a new session with the same project (any URL spelling) finds and updates the artifact without a duplicate.
+     - [ ] A publish that creates an artifact opens it in the browser (not updates or rollbacks), unless turned off or skipped; results say `opened`.
 6. **M5 — CLI + polish.** CLI commands, rollback, delete, labels, orphan sweep on startup, npm packaging, README with the npx quick start and the Claude Code setup line.
    - [ ] Every CLI command has an e2e test against a temp root.
    - [ ] README quick start works from a clean clone in under 2 minutes.
    - [ ] `pnpm pack` tarball installed into a temp directory passes the e2e suite (catches anything still pointing at `.ts`).
    - [ ] `npx @nikovirtala/artifact serve` starts the server from the tarball with no other setup.
+   - `artifact init` writes the agent snippet ([0038](decisions/0038-tool-selection-wording.md)): updates `CLAUDE.md` and `AGENTS.md` in the working directory if present, else creates `CLAUDE.md`; an idempotent block between `<!-- artifact:start -->` and `<!-- artifact:end -->`; `--dry-run`; `--global` targets `~/.claude/CLAUDE.md`; prints the `claude mcp add` line; pins the exact normalised `project` value in the snippet; opt-in `--deny-builtin` adds Claude Code's `"deny": ["Artifact"]` permission rule.
+   - `artifact publish --no-open` suppresses the browser for one call (sends `open: false`, [0040](decisions/0040-auto-open-new-artifacts.md)).
    - Note: the orphan sweep also removes `artifacts/<id>/` folders without `meta.json`, skipping folders modified in the last few minutes ([0015](decisions/0015-publish-protocol-and-conflicts.md)).
 7. **M6 — AWS adapters (later).** See AWS migration path.
 
@@ -270,6 +282,8 @@ The move to AWS swaps adapters and the reload transport; the core, the key layou
 | API + MCP | Hono on `@hono/node-server` | Same Hono app on Lambda (`hono/aws-lambda`) behind a Function URL or API Gateway; MCP stays stateless Streamable HTTP |
 | Auth | Loopback + optional bearer token | Cognito/OIDC for API and MCP; viewing gated per artifact (private by default) |
 | `file_path` input | Allowed | Rejected; inline `files` only |
+| Auto-open | New artifacts open in the local browser ([0040](decisions/0040-auto-open-new-artifacts.md)) | Off: `opened` is always `false` |
+| `project` filter | `meta.json` field; `list` filters by it | The same |
 
 What to keep true locally so the move stays cheap:
 

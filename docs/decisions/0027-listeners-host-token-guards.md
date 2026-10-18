@@ -20,3 +20,7 @@ Status: Accepted (M2)
 - Artifact pages on `<id>.localhost` cannot call the API: their requests carry their own Host (served as viewing) or a rejected Origin.
 - Path-mode pages share the `localhost:<port>` origin, so their same-origin requests to `/api` pass the Origin guard. Set `ARTIFACT_TOKEN` if that matters.
 - The Host guard does not add the `--host` address. Remote clients must send a `localhost` Host (for example through an SSH tunnel). This keeps the owner's Host rule literal; revisit if remote use matters.
+
+## Update (M4 follow-up)
+
+Guard 3 is replaced by [0037](0037-no-browser-requests-to-api-and-mcp.md): `/api` and `/mcp` refuse any request with an `Origin` header (any value) or a `Sec-Fetch-Site` other than `none`, so the loopback origins are no longer allowed. The consequence above about path-mode pages passing the Origin guard no longer holds: they get 403, with or without `ARTIFACT_TOKEN`.
