@@ -25,6 +25,7 @@
     "format": "biome check --write .",
     "test": "node --test \"test/**/*.test.ts\"",
     "check": "pnpm typecheck && pnpm lint && pnpm test",
+    "test:pack": "node scripts/pack-test.ts",
     "clean": "node scripts/clean.ts",
     "build": "pnpm clean && tsc -p tsconfig.build.json && node scripts/copy-assets.ts",
     "prepublishOnly": "pnpm check && pnpm build"
