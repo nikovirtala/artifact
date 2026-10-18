@@ -36,3 +36,5 @@ Following that order literally has a race. Two publishers that both read `latest
 ## Update (M4 follow-up)
 
 `meta.json` gains an optional `project` (the normalised identifier, [0039](0039-project-identifier-and-filtering.md)), written on create and never changed afterwards: an update with a different project keeps the stored one.
+
+Update (M5): the sweep is implemented as described, with a 10-minute threshold ([0047](0047-orphan-sweep.md)).

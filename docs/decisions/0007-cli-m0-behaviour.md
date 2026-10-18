@@ -16,3 +16,7 @@ M0 only requires `node src/cli/main.ts --help` to work with no build step.
 ## Consequences
 
 The usage text is the CLI's contract until M5 and is asserted by `test/cli/main.test.ts`.
+
+## Update (M5)
+
+The CLI conventions are in [0041](0041-cli-client-conventions.md): usage errors (no or unknown command, bad flags) now exit 2, not 1; `--version` prints the package version; per-command `--help`; and "not implemented yet" is gone because every command exists. Flags still use `node:util` `parseArgs`.
