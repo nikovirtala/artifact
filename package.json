@@ -1,6 +1,6 @@
 {
   "name": "@nikovirtala/artifact",
-  "version": "0.0.0",
+  "version": "1.0.0",
   "description": "Local server that hosts HTML artifacts at stable URLs with immutable versions and live reload",
   "license": "MIT",
   "keywords": [
