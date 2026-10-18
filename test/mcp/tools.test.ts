@@ -49,9 +49,10 @@ describe("tools/list", () => {
       "id",
       "if_version",
       "label",
+      "project",
       "title",
     ]);
-    assert.deepEqual(props("artifact_list"), ["limit"]);
+    assert.deepEqual(props("artifact_list"), ["all", "limit", "project"]);
     assert.deepEqual(props("artifact_read"), ["id", "path", "version"]);
     assert.deepEqual(props("artifact_rollback"), ["id", "version"]);
     assert.deepEqual(props("artifact_delete"), ["confirm", "id"]);
@@ -83,6 +84,46 @@ describe("tools/list", () => {
     assert.match(d.artifact_rollback, /back to an earlier/);
     assert.match(d.artifact_delete, /Only call this when the user explicitly asks/);
     assert.match(d.artifact_delete, /confirm: true/);
+  });
+
+  it("tells the agent to pass project on every call and how to derive it", async () => {
+    const { mcp } = await setup();
+    const { tools } = await mcp.client.listTools();
+    const by = Object.fromEntries(tools.map((t) => [t.name, t]));
+    for (const name of ["artifact_publish", "artifact_list"]) {
+      const d = by[name].description ?? "";
+      assert.match(d, /Pass project on every call/, name);
+      assert.match(
+        d,
+        /Never ask the user about, or act on, artifacts outside the current project unless they refer to them/,
+        name,
+      );
+      const project = by[name].inputSchema.properties?.project as { description?: string };
+      const field = project?.description;
+      assert.match(field ?? "", /Derive it exactly; do not invent or shorten it\./, name);
+      assert.match(
+        field ?? "",
+        /1\. Run `git remote get-url origin`; if it succeeds, pass that URL as-is/,
+      );
+      assert.match(
+        field ?? "",
+        /2\. Otherwise, if `git rev-parse --show-toplevel` succeeds, pass `local:` \+ that path/,
+      );
+      assert.match(
+        field ?? "",
+        /3\. Otherwise pass `local:` \+ the absolute current working directory/,
+      );
+      assert.match(
+        field ?? "",
+        /If your instructions \(e\.g\. CLAUDE\.md\) state a project value, use that instead/,
+      );
+      assert.match(field ?? "", /Use the same value for every call in the session/);
+    }
+    assert.match(by.artifact_list.description ?? "", /you get only that project's artifacts/);
+    assert.match(
+      by.artifact_list.description ?? "",
+      /Use all: true only when the user asks about artifacts from other projects/,
+    );
   });
 });
 
@@ -210,6 +251,57 @@ describe("artifact_list", () => {
     for (const limit of [0, 501, 1.5]) {
       const r = await mcp.call("artifact_list", { limit });
       assert.equal(r.value.error, "invalid_request", String(limit));
+    }
+  });
+});
+
+describe("projects", () => {
+  it("publish stores the normalised project; list filters by it; all lists everything", async () => {
+    const { mcp, publish, clock } = await setup();
+    const a = await publish({ project: "git@github.com:acme/a.git", files: page("a") });
+    assert.equal((a as { project?: string }).project, "github.com/acme/a");
+    clock.advance(1000);
+    const b = await publish({ project: "local:/Users/me/b/", files: page("b") });
+    assert.equal((b as { project?: string }).project, "local:/Users/me/b");
+    clock.advance(1000);
+    const none = await publish();
+    const ids = async (args: Record<string, unknown>) =>
+      ((await mcp.call("artifact_list", args)).value.artifacts as { id: string }[]).map(
+        (x) => x.id,
+      );
+    assert.deepEqual(await ids({ project: "https://github.com/Acme/A" }), [a.id]);
+    assert.deepEqual(await ids({ project: "local:/Users/me/b" }), [b.id]);
+    assert.deepEqual(await ids({ project: "local:/Users/me/B" }), []);
+    assert.deepEqual(await ids({ project: "github.com/acme/a", all: true }), [none.id, b.id, a.id]);
+    assert.deepEqual(await ids({}), [none.id, b.id, a.id]);
+    const listed = await mcp.call("artifact_list", { project: "github.com/acme/a" });
+    assert.deepEqual(listed.value.artifacts, [
+      {
+        id: a.id,
+        project: "github.com/acme/a",
+        currentVersion: 1,
+        updatedAt: "2026-10-17T12:00:00.000Z",
+        url: a.url,
+      },
+    ]);
+  });
+
+  it("an update with a different project keeps the stored one", async () => {
+    const { publish } = await setup();
+    const a = await publish({ project: "github.com/acme/a", files: page("a") });
+    const updated = await publish({ id: a.id, project: "github.com/acme/b", files: page("a2") });
+    assert.deepEqual(updated, { ...a, version: 2 });
+  });
+
+  it("rejects an invalid project with invalid_input", async () => {
+    const { mcp } = await setup();
+    for (const [tool, args] of [
+      ["artifact_publish", { project: "", files: page("") }],
+      ["artifact_list", { project: "not a project" }],
+    ] as const) {
+      const r = await mcp.call(tool, args);
+      assert.equal(r.isError, true, tool);
+      assert.deepEqual([r.value.error, r.value.field], ["invalid_input", "project"]);
     }
   });
 });

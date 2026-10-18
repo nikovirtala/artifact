@@ -78,14 +78,17 @@ export function createApi(deps: AppDeps): Hono<AppEnv> {
   const urlFor = (id: string) => artifactUrl(id, config);
   const published = (
     c: Context<AppEnv>,
-    result: Result<{ id: string; version: number }>,
+    result: Result<{ id: string; version: number; project?: string }>,
     status: 200 | 201,
   ) => {
     if (!result.ok) return coreError(result.error);
-    const { id, version } = result.value;
+    const { id, version, project } = result.value;
     c.header("ETag", etag(version));
     if (status === 201) c.header("Location", `/api/artifacts/${id}`);
-    return c.json({ id, version, url: urlFor(id) }, status);
+    return c.json(
+      { id, version, url: urlFor(id), ...(project === undefined ? {} : { project }) },
+      status,
+    );
   };
 
   const api = new Hono<AppEnv>();
@@ -111,12 +114,20 @@ export function createApi(deps: AppDeps): Hono<AppEnv> {
   api.get("/artifacts", async (c) => {
     const limit = queryInt(c, "limit", LIMITS.maxListLimit);
     if (!limit.ok) return limit.response;
-    const list = await service.list({ limit: limit.value ?? DEFAULT_LIST_LIMIT });
+    const projects = c.req.queries("project");
+    if (projects !== undefined && projects.length !== 1) {
+      return badRequest("query parameter project must be given at most once");
+    }
+    const list = await service.list({
+      limit: limit.value ?? DEFAULT_LIST_LIMIT,
+      project: projects?.[0],
+    });
     if (!list.ok) return coreError(list.error);
     return c.json({
       artifacts: list.value.map((a) => ({
         id: a.id,
         ...(a.title === undefined ? {} : { title: a.title }),
+        ...(a.project === undefined ? {} : { project: a.project }),
         currentVersion: a.currentVersion,
         updatedAt: a.updatedAt,
         url: urlFor(a.id),
@@ -152,8 +163,12 @@ export function createApi(deps: AppDeps): Hono<AppEnv> {
   api.post("/artifacts", async (c) => {
     const body = await jsonBody(c, PublishBodySchema);
     if (!body.ok) return body.response;
-    const { title, label, files } = body.value;
-    return published(c, await service.publish({ title, label, files: decodeFiles(files) }), 201);
+    const { title, label, project, files } = body.value;
+    return published(
+      c,
+      await service.publish({ title, label, project, files: decodeFiles(files) }),
+      201,
+    );
   });
 
   api.put("/artifacts/:id", async (c) => {
@@ -164,7 +179,7 @@ export function createApi(deps: AppDeps): Hono<AppEnv> {
     }
     const body = await jsonBody(c, PublishBodySchema);
     if (!body.ok) return body.response;
-    const { title, label, files, if_version } = body.value;
+    const { title, label, project, files, if_version } = body.value;
     if (ifMatch && if_version !== undefined && ifMatch.value !== if_version) {
       return badRequest("If-Match and if_version disagree");
     }
@@ -175,6 +190,7 @@ export function createApi(deps: AppDeps): Hono<AppEnv> {
         id: c.req.param("id"),
         title,
         label,
+        project,
         ifVersion,
         files: decodeFiles(files),
       }),

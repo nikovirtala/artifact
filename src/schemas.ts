@@ -18,6 +18,8 @@ export const FilesSchema = z.record(z.string(), FileValueSchema);
 export const PublishBodySchema = z.strictObject({
   title: z.string().optional(),
   label: z.string().optional(),
+  /** Codebase identifier, normalised by the core (docs/decisions/0039). Kept from the create. */
+  project: z.string().optional(),
   files: FilesSchema,
   /** Update only if this is still the current version. Ignored on create. */
   if_version: z.number().int().positive().optional(),
@@ -33,6 +35,16 @@ const IdSchema = z
   .string()
   .describe("Artifact id: the 26-character ULID returned by artifact_publish or artifact_list.");
 const VersionSchema = z.number().int().positive();
+// How the agent derives `project` (owner wording, docs/decisions/0039).
+const PROJECT_DESCRIPTION =
+  "Identifies the codebase you are working in, so artifact_list returns only its artifacts. " +
+  "Derive it exactly; do not invent or shorten it. " +
+  "1. Run `git remote get-url origin`; if it succeeds, pass that URL as-is (the server normalises it). " +
+  "2. Otherwise, if `git rev-parse --show-toplevel` succeeds, pass `local:` + that path. " +
+  "3. Otherwise pass `local:` + the absolute current working directory. " +
+  "If your instructions (e.g. CLAUDE.md) state a project value, use that instead. " +
+  "Use the same value for every call in the session.";
+const ProjectSchema = z.string().optional().describe(PROJECT_DESCRIPTION);
 
 export const PublishToolInputSchema = PublishBodySchema.extend({
   id: IdSchema.optional().describe(
@@ -41,6 +53,9 @@ export const PublishToolInputSchema = PublishBodySchema.extend({
   title: PublishBodySchema.shape.title.describe("Title shown in the gallery and artifact_list."),
   label: PublishBodySchema.shape.label.describe(
     `Short name for this version, at most ${LIMITS.maxLabelChars} characters.`,
+  ),
+  project: ProjectSchema.describe(
+    `${PROJECT_DESCRIPTION} It is stored when the artifact is created and never changes.`,
   ),
   file_path: z
     .string()
@@ -68,6 +83,13 @@ export const ListToolInputSchema = z.strictObject({
     .optional()
     .describe(
       `Most artifacts to return, most recently updated first (default ${DEFAULT_LIST_LIMIT}).`,
+    ),
+  project: ProjectSchema,
+  all: z
+    .boolean()
+    .optional()
+    .describe(
+      "List the artifacts of every project (project is then ignored). Only when the user asks about artifacts from other projects.",
     ),
 });
 

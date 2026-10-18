@@ -97,7 +97,7 @@ function tools(deps: McpDeps): ToolSpec<z.ZodType>[] {
     }
     return readEntryFile(path);
   };
-  const published = (result: Result<{ id: string; version: number }>) =>
+  const published = (result: Result<{ id: string; version: number; project?: string }>) =>
     result.ok
       ? { ok: true as const, value: { ...result.value, url: urlFor(result.value.id) } }
       : result;
@@ -112,13 +112,14 @@ function tools(deps: McpDeps): ToolSpec<z.ZodType>[] {
           : "Instead of files['index.html'] you can pass file_path, the absolute path of a local .html file; supporting files it references are included only if you also list them in files.",
         "Omit id to create a new artifact. Pass id to update that artifact in place: it gets a new version and keeps its URL, and open tabs reload.",
         "Before creating, if this page may already exist (from earlier in this session or another one), call artifact_list and reuse its id instead of creating a duplicate.",
-        "Returns {id, version, url}; show the url to the user.",
+        "Pass project on every call, derived as its description says. Never ask the user about, or act on, artifacts outside the current project unless they refer to them.",
+        "Returns {id, version, url, project?}; show the url to the user.",
         "If it fails with version_conflict and you did not pass if_version, other publishes were racing and retries ran out: retry the same call, and do not add if_version.",
         "With if_version, version_conflict means someone else published first: artifact_read the current version and redo the change on top of it.",
       ].join(" "),
       input: PublishToolInputSchema,
       annotations: { title: "Publish artifact", destructiveHint: false, openWorldHint: false },
-      run: async ({ id, title, label, if_version, file_path, files }) => {
+      run: async ({ id, title, label, project, if_version, file_path, files }) => {
         const decoded = decodeFiles(files ?? {});
         if (file_path !== undefined) {
           const entry = await entryFromPath(file_path, decoded);
@@ -126,20 +127,30 @@ function tools(deps: McpDeps): ToolSpec<z.ZodType>[] {
           decoded[ENTRY_PAGE] = entry.value;
         }
         return published(
-          await service.publish({ id, title, label, ifVersion: if_version, files: decoded }),
+          await service.publish({
+            id,
+            title,
+            label,
+            project,
+            ifVersion: if_version,
+            files: decoded,
+          }),
         );
       },
     }),
     tool({
       name: "artifact_list",
       description: [
-        "List artifacts, most recently updated first: {artifacts: [{id, title?, currentVersion, updatedAt, url}]}.",
+        "List artifacts, most recently updated first: {artifacts: [{id, title?, project?, currentVersion, updatedAt, url}]}.",
         "Use it to recover the id of an existing artifact before updating it, instead of creating a duplicate.",
+        "Pass project on every call: you get only that project's artifacts.",
+        "Use all: true only when the user asks about artifacts from other projects.",
+        "Never ask the user about, or act on, artifacts outside the current project unless they refer to them.",
       ].join(" "),
       input: ListToolInputSchema,
       annotations: { title: "List artifacts", readOnlyHint: true, openWorldHint: false },
-      run: async ({ limit }) => {
-        const list = await service.list({ limit: limit ?? DEFAULT_LIST_LIMIT });
+      run: async ({ limit, project, all }) => {
+        const list = await service.list({ limit: limit ?? DEFAULT_LIST_LIMIT, project, all });
         if (!list.ok) return list;
         return {
           ok: true,
@@ -147,6 +158,7 @@ function tools(deps: McpDeps): ToolSpec<z.ZodType>[] {
             artifacts: list.value.map((a) => ({
               id: a.id,
               ...(a.title === undefined ? {} : { title: a.title }),
+              ...(a.project === undefined ? {} : { project: a.project }),
               currentVersion: a.currentVersion,
               updatedAt: a.updatedAt,
               url: urlFor(a.id),

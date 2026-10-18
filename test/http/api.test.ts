@@ -407,3 +407,57 @@ describe("API guards", () => {
     assert.equal(res.headers.get("content-type"), "text/plain; charset=utf-8");
   });
 });
+
+describe("projects on the API", () => {
+  it("stores the normalised project, filters the list and keeps it on update", async () => {
+    const { call, create, clock } = setup();
+    const a = await create({ project: "git@github.com:Acme/A.git", files: { "index.html": "a" } });
+    assert.equal((a as { project?: string }).project, "github.com/acme/a");
+    clock.advance(1000);
+    const b = await create({ project: "https://github.com/acme/b", files: { "index.html": "b" } });
+    clock.advance(1000);
+    const none = await create();
+    const ids = async (query: string) =>
+      (
+        (await (await call("GET", `/api/artifacts${query}`)).json()).artifacts as { id: string }[]
+      ).map((x) => x.id);
+    const q = encodeURIComponent("https://github.com/acme/a");
+    assert.deepEqual(await ids(`?project=${q}`), [a.id]);
+    assert.deepEqual(await ids(`?project=github.com/acme/b`), [b.id]);
+    assert.deepEqual(await ids(""), [none.id, b.id, a.id]);
+    const listed = await (await call("GET", `/api/artifacts?project=${q}`)).json();
+    assert.equal(listed.artifacts[0].project, "github.com/acme/a");
+    const details = await (await call("GET", `/api/artifacts/${a.id}`)).json();
+    assert.equal(details.project, "github.com/acme/a");
+
+    const put = await call("PUT", `/api/artifacts/${a.id}`, {
+      project: "https://github.com/acme/b",
+      files: { "index.html": "a2" },
+    });
+    assert.equal(put.status, 200);
+    assert.deepEqual(await put.json(), {
+      id: a.id,
+      version: 2,
+      url: a.url,
+      project: "github.com/acme/a",
+    });
+    assert.deepEqual(await ids(`?project=${q}`), [a.id]);
+  });
+
+  it("rejects an invalid project with 422 and a repeated one with 400", async () => {
+    const { call } = setup();
+    const post = await call("POST", "/api/artifacts", {
+      project: "local:rel",
+      files: { "index.html": "x" },
+    });
+    assert.equal(post.status, 422);
+    const body = await post.json();
+    assert.deepEqual([body.error, body.field], ["invalid_input", "project"]);
+    const list = await call("GET", "/api/artifacts?project=");
+    assert.equal(list.status, 422);
+    assert.equal((await list.json()).field, "project");
+    const repeated = await call("GET", "/api/artifacts?project=a/b&project=a/b");
+    assert.equal(repeated.status, 400);
+    assert.equal((await repeated.json()).error, "bad_request");
+  });
+});
