@@ -91,7 +91,12 @@ export async function freePort(): Promise<number> {
   return port;
 }
 
-export type Served = { child: ChildProcess; stderr: () => string; exited: Promise<number | null> };
+export type Served = {
+  child: ChildProcess;
+  stdout: () => string;
+  stderr: () => string;
+  exited: Promise<number | null>;
+};
 
 /** Start `serve` and wait for its "serving" line; `extraEnv` overrides the cleared env. */
 export async function serve(
@@ -122,5 +127,5 @@ export async function serve(
       reject(new Error(`serve exited early: ${stderr}`));
     });
   });
-  return { child, stderr: () => stderr, exited };
+  return { child, stdout: () => stdout, stderr: () => stderr, exited };
 }

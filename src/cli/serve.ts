@@ -1,4 +1,5 @@
-// `artifact serve`: config → lock the root → wire the service → listen until SIGINT/SIGTERM.
+// `artifact serve`: config → lock the root → wire the service → sweep orphans → listen until
+// SIGINT/SIGTERM.
 import { mkdir } from "node:fs/promises";
 import { getRequestListener } from "@hono/node-server";
 import { createBrowserOpener } from "../adapters/browser-opener.ts";
@@ -62,6 +63,17 @@ export async function runServe(args: readonly string[], env: Env): Promise<numbe
     clock: systemClock,
     ids: createUlidIdGen(),
   });
+  // Under the lock, before listening: nothing else can be publishing to this root (0047).
+  try {
+    const swept = await service.sweepOrphans();
+    if (swept.versions || swept.folders) {
+      out(
+        `artifact: orphan sweep removed ${swept.versions} uncommitted version(s) and ${swept.folders} folder(s) without meta.json`,
+      );
+    }
+  } catch (error) {
+    err(`artifact: warning: orphan sweep failed: ${(error as Error).message}`);
+  }
   const opener = config.open ? createBrowserOpener({ warn: err }) : undefined;
   const app = createApp({ service, events: notifier, config, opener });
 
