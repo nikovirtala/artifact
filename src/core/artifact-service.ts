@@ -43,6 +43,7 @@ import type {
   PointerObject,
   PointerStore,
 } from "./ports.ts";
+import { normalizeProject } from "./project.ts";
 
 export const LIMITS = {
   maxFiles: MAX_FILES_PER_PUBLISH,
@@ -65,11 +66,17 @@ export type PublishInput = {
   label?: string;
   /** Update only if this is still the current version, else `version_conflict`. Ignored on create. */
   ifVersion?: number;
+  /**
+   * Codebase identifier (normalised, docs/decisions/0039). Stored on create; an update keeps the
+   * stored one, but the value must still be valid.
+   */
+  project?: string;
   /** Relative path → contents. `index.html` at the root is required. */
   files: Readonly<Record<string, FileBody>>;
 };
 
-export type Published = { id: string; version: number };
+/** `project` is the stored one (absent if the artifact has none). */
+export type Published = { id: string; version: number; project?: string };
 
 export type VersionInfo = { version: number; createdAt: string; label?: string };
 
@@ -77,6 +84,8 @@ export type VersionInfo = { version: number; createdAt: string; label?: string }
 export type ArtifactMeta = {
   id: string;
   title?: string;
+  /** Normalised project identifier, set on create and never changed. */
+  project?: string;
   currentVersion: number;
   versions: VersionInfo[];
   createdAt: string;
@@ -96,6 +105,7 @@ export type Manifest = {
 export type ArtifactSummary = {
   id: string;
   title?: string;
+  project?: string;
   currentVersion: number;
   createdAt: string;
   updatedAt: string;
@@ -160,6 +170,7 @@ function summary(meta: ArtifactMeta): ArtifactSummary {
     updatedAt: meta.updatedAt,
   };
   if (meta.title !== undefined) s.title = meta.title;
+  if (meta.project !== undefined) s.project = meta.project;
   return s;
 }
 
@@ -185,17 +196,25 @@ export class ArtifactService {
   }
 
   async publish(input: PublishInput): Promise<Result<Published>> {
+    const project = input.project === undefined ? ok(undefined) : normalizeProject(input.project);
+    if (!project.ok) return project;
     const prepared = await prepare(input);
     if (!prepared.ok) return prepared;
     const now = this.#clock.now().toISOString();
-    if (input.id === undefined) return this.#create(input.title, prepared.value, now);
+    if (input.id === undefined)
+      return this.#create(input.title, project.value, prepared.value, now);
     const id = normalizeId(input.id);
     if (!id.ok) return id;
     return this.#update(id.value, input.title, input.ifVersion, prepared.value, now);
   }
 
-  /** Artifacts, most recently updated first; `limit` is an integer 1..500 (default: all). */
-  async list(options: { limit?: number } = {}): Promise<Result<ArtifactSummary[]>> {
+  /**
+   * Artifacts, most recently updated first; `limit` is an integer 1..500 (default: all). With
+   * `project`, only artifacts whose stored project equals its normalised value; `all` ignores it.
+   */
+  async list(
+    options: { limit?: number; project?: string; all?: boolean } = {},
+  ): Promise<Result<ArtifactSummary[]>> {
     const { limit } = options;
     if (
       limit !== undefined &&
@@ -209,12 +228,20 @@ export class ArtifactService {
         ),
       );
     }
+    let project: string | undefined;
+    if (options.project !== undefined && !options.all) {
+      const normalized = normalizeProject(options.project);
+      if (!normalized.ok) return normalized;
+      project = normalized.value;
+    }
     const { commonPrefixes } = await this.#blobs.list(ARTIFACTS_PREFIX, { delimiter: "/" });
     const ids = commonPrefixes
       .map((p) => p.slice(ARTIFACTS_PREFIX.length, -1))
       .filter((id) => isArtifactId(id));
     const pointers = await Promise.all(ids.map((id) => this.#readPointer(id)));
-    const metas = pointers.flatMap((p) => (p ? [p.meta] : []));
+    const metas = pointers.flatMap((p) =>
+      p && (project === undefined || p.meta.project === project) ? [p.meta] : [],
+    );
     const key = (m: ArtifactMeta) => `${m.updatedAt} ${m.id}`;
     metas.sort((a, b) => (key(a) < key(b) ? 1 : key(a) > key(b) ? -1 : 0));
     return ok(metas.slice(0, limit ?? metas.length).map(summary));
@@ -318,6 +345,7 @@ export class ArtifactService {
 
   async #create(
     title: string | undefined,
+    project: string | undefined,
     prepared: Prepared,
     now: string,
   ): Promise<Result<Published>> {
@@ -328,13 +356,14 @@ export class ArtifactService {
       const meta: ArtifactMeta = {
         id,
         ...(title === undefined ? {} : { title }),
+        ...(project === undefined ? {} : { project }),
         currentVersion: 1,
         versions: [versionInfo(1, prepared, now)],
         createdAt: now,
         updatedAt: now,
       };
       const created = await this.#pointers.write(metaKey(id), toJson(meta), { ifNoneMatch: "*" });
-      if (created.ok) return this.#published(id, 1);
+      if (created.ok) return this.#published(id, 1, project);
     }
     throw new Error("could not allocate an unused artifact id");
   }
@@ -374,7 +403,7 @@ export class ArtifactService {
         versions: [...pointer.meta.versions, versionInfo(claimed, prepared, now)],
         updatedAt: now,
       };
-      if (await this.#swap(id, pointer, meta)) return this.#published(id, claimed);
+      if (await this.#swap(id, pointer, meta)) return this.#published(id, claimed, meta.project);
       // The pointer moved (another publish, a rollback or a delete): re-read and retry.
       pointer = await this.#readPointer(id);
     }
@@ -427,9 +456,9 @@ export class ArtifactService {
     return result.ok;
   }
 
-  async #published(id: string, version: number): Promise<Result<Published>> {
+  async #published(id: string, version: number, project?: string): Promise<Result<Published>> {
     await this.#notify({ type: "published", id, version });
-    return ok({ id, version });
+    return ok(project === undefined ? { id, version } : { id, version, project });
   }
 
   async #notify(event: ArtifactEvent): Promise<void> {
