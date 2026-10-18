@@ -2,7 +2,7 @@
 // Not a *.test.ts file: adapter runners in this folder call `storeContract` with a factory.
 import assert from "node:assert/strict";
 import { afterEach, beforeEach, describe, it } from "node:test";
-import type { BlobStore, PointerStore } from "../../src/core/ports.ts";
+import type { BlobStore, ListResult, PointerStore } from "../../src/core/ports.ts";
 
 export type StoreFixture = {
   blobs: BlobStore;
@@ -15,6 +15,17 @@ const dec = (b: Uint8Array | undefined) =>
   b === undefined ? undefined : new TextDecoder().decode(b);
 
 const CONCURRENCY = 20;
+
+/** Keys and common prefixes of a list result, after checking `objects` mirrors `keys`. */
+function grouping(result: ListResult): { keys: string[]; commonPrefixes: string[] } {
+  assert.deepEqual(
+    result.objects.map((o) => o.key),
+    result.keys,
+  );
+  return { keys: result.keys, commonPrefixes: result.commonPrefixes };
+}
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 export function storeContract(name: string, setup: () => Promise<StoreFixture>): void {
   describe(`${name} store`, () => contract(setup));
@@ -99,7 +110,7 @@ function contract(setup: () => Promise<StoreFixture>): void {
       for (const key of ["a/b/y", "a/bc/x", "a/b/x", "a/a", "b/a", "ab"]) {
         await blobs.put(key, enc(key));
       }
-      assert.deepEqual(await blobs.list("a/b"), {
+      assert.deepEqual(grouping(await blobs.list("a/b")), {
         keys: ["a/b/x", "a/b/y", "a/bc/x"],
         commonPrefixes: [],
       });
@@ -112,24 +123,66 @@ function contract(setup: () => Promise<StoreFixture>): void {
         "ab",
         "b/a",
       ]);
-      assert.deepEqual(await blobs.list("zzz/"), { keys: [], commonPrefixes: [] });
+      assert.deepEqual(grouping(await blobs.list("zzz/")), { keys: [], commonPrefixes: [] });
     });
 
     it("list with a delimiter groups deeper keys into common prefixes", async () => {
       for (const key of ["p/1/a", "p/1/b/c", "p/2/a", "p/x", "q/1"]) {
         await blobs.put(key, enc(key));
       }
-      assert.deepEqual(await blobs.list("p/", { delimiter: "/" }), {
+      assert.deepEqual(grouping(await blobs.list("p/", { delimiter: "/" })), {
         keys: ["p/x"],
         commonPrefixes: ["p/1/", "p/2/"],
       });
-      assert.deepEqual(await blobs.list("", { delimiter: "/" }), {
+      assert.deepEqual(grouping(await blobs.list("", { delimiter: "/" })), {
         keys: [],
         commonPrefixes: ["p/", "q/"],
       });
-      assert.deepEqual(await blobs.list("p/1", { delimiter: "/" }), {
+      assert.deepEqual(grouping(await blobs.list("p/1", { delimiter: "/" })), {
         keys: [],
         commonPrefixes: ["p/1/"],
+      });
+    });
+
+    describe("lastModified", () => {
+      it("objects mirror keys in order, each with the time of its write", async () => {
+        const before = Date.now();
+        for (const key of ["t/b", "t/a/1", "t/c"]) await blobs.put(key, enc(key));
+        const after = Date.now();
+        const result = await blobs.list("t/");
+        assert.deepEqual(
+          result.objects.map((o) => o.key),
+          ["t/a/1", "t/b", "t/c"],
+        );
+        assert.deepEqual(
+          result.objects.map((o) => o.key),
+          result.keys,
+        );
+        for (const { lastModified } of result.objects) {
+          assert.ok(lastModified instanceof Date);
+          assert.ok(lastModified.getTime() >= before - 2000, "not before the write");
+          assert.ok(lastModified.getTime() <= after + 2000, "not after the write");
+        }
+      });
+
+      it("an overwrite does not decrease lastModified", async () => {
+        await blobs.put("t/k", enc("one"));
+        const [first] = (await blobs.list("t/k")).objects;
+        await sleep(20);
+        await blobs.put("t/k", enc("two"));
+        const [second] = (await blobs.list("t/k")).objects;
+        assert.ok(second.lastModified.getTime() >= first.lastModified.getTime());
+      });
+
+      it("with a delimiter, objects cover only the level's keys", async () => {
+        for (const key of ["l/x", "l/y", "l/sub/z"]) await blobs.put(key, enc(key));
+        const result = await blobs.list("l/", { delimiter: "/" });
+        assert.deepEqual(
+          result.objects.map((o) => o.key),
+          ["l/x", "l/y"],
+        );
+        assert.deepEqual(result.commonPrefixes, ["l/sub/"]);
+        for (const { lastModified } of result.objects) assert.ok(lastModified instanceof Date);
       });
     });
 
@@ -147,7 +200,7 @@ function contract(setup: () => Promise<StoreFixture>): void {
       await blobs.put("r/a/deep/file", enc("x"));
       await blobs.put("r/b", enc("y"));
       await blobs.delete("r/a/deep/file");
-      assert.deepEqual(await blobs.list("r/", { delimiter: "/" }), {
+      assert.deepEqual(grouping(await blobs.list("r/", { delimiter: "/" })), {
         keys: ["r/b"],
         commonPrefixes: [],
       });
