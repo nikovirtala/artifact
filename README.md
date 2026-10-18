@@ -39,7 +39,7 @@ Notes:
 
 - **CSP.** A custom `--csp` must allow `'self'` scripts and connections (`script-src 'self'; connect-src 'self'`, or `default-src 'self'`). Otherwise live reload cannot load `/__artifact/reload.js` or open its event stream.
 - **Safari.** Safari resolves `http://<id>.localhost:4400/` without `/etc/hosts` entries ([0010](docs/decisions/0010-safari-localhost.md)). If `*.localhost` does not resolve somewhere, use `http://localhost:4400/a/<id>/`, or start with `--isolation path`.
-- **Path mode shares one origin.** Pages under `/a/<id>/` share storage (localStorage, cookies) with each other and can call `/api` on the same origin. Set `ARTIFACT_TOKEN` if that matters. Subdomain pages cannot call the API.
+- **Path mode shares one origin.** Pages under `/a/<id>/` share storage (localStorage, cookies) with each other. No web page can call `/api` or `/mcp`: requests with an `Origin` header or a `Sec-Fetch-Site` other than `none` get 403 ([0037](docs/decisions/0037-no-browser-requests-to-api-and-mcp.md)). Use curl, the CLI or an MCP client.
 
 ## MCP (agents)
 
@@ -51,7 +51,7 @@ claude mcp add --transport http artifacts http://localhost:4400/mcp
 claude mcp add --transport http artifacts http://localhost:4400/mcp --header "Authorization: Bearer $ARTIFACT_TOKEN"
 ```
 
-Any MCP client that speaks Streamable HTTP can use `http://localhost:4400/mcp`. The endpoint is stateless (no sessions) and has the same Origin and token guards as `/api`.
+Any MCP client that speaks Streamable HTTP can use `http://localhost:4400/mcp`. The endpoint is stateless (no sessions) and has the same browser and token guards as `/api`.
 
 | Tool | Input | Result |
 | --- | --- | --- |
@@ -61,7 +61,7 @@ Any MCP client that speaks Streamable HTTP can use `http://localhost:4400/mcp`. 
 | `artifact_rollback` | `id`, `version` | `{id, version, url}`: current moves back to that version. |
 | `artifact_delete` | `id`, `confirm: true` | `{ok: true}`. Only when the user asks. |
 
-`files` uses the API encoding: a string is UTF-8, `{"base64": "…"}` is binary. `file_path` is the absolute path of a local `.html` file, published as `index.html`; supporting files are only included if they are also listed in `files`. It is refused on requests from browser pages. Errors come back as tool errors (`isError`) with the API's `{"error", "message", …}` object. See ADRs [0033](docs/decisions/0033-mcp-transport-and-sdk.md)–[0036](docs/decisions/0036-mcp-tool-descriptions.md).
+`files` uses the API encoding: a string is UTF-8, `{"base64": "…"}` is binary. `file_path` is the absolute path of a local `.html` file, published as `index.html`; supporting files are only included if they are also listed in `files`. Errors come back as tool errors (`isError`) with the API's `{"error", "message", …}` object. See ADRs [0033](docs/decisions/0033-mcp-transport-and-sdk.md)–[0036](docs/decisions/0036-mcp-tool-descriptions.md).
 
 ## Live reload
 

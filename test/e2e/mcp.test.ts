@@ -121,7 +121,7 @@ describe("agent scenarios over MCP (e2e)", () => {
     assert.equal(await server.exited, 0);
   });
 
-  it("rejects artifact origins with 403 and enforces ARTIFACT_TOKEN on /mcp", async () => {
+  it("rejects browser requests with 403 and enforces ARTIFACT_TOKEN on /mcp", async () => {
     const port = await freePort();
     const server = await serve(port, tempRoot(), { ARTIFACT_TOKEN: "e2e-token" });
     const endpoint = `http://localhost:${port}/mcp`;
@@ -144,6 +144,13 @@ describe("agent scenarios over MCP (e2e)", () => {
     });
     assert.equal(fromArtifact.status, 403);
     assert.equal((await fromArtifact.json()).error, "forbidden");
+    for (const page of [
+      { origin: `http://localhost:${port}` },
+      { "sec-fetch-site": "same-origin" },
+    ] as Record<string, string>[]) {
+      const res = await post({ ...auth, ...page });
+      assert.equal(res.status, 403, JSON.stringify(page));
+    }
     const noToken = await post({});
     assert.equal(noToken.status, 401);
     assert.equal(noToken.headers.get("www-authenticate"), "Bearer");

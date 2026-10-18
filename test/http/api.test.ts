@@ -330,27 +330,55 @@ describe("API errors", () => {
 });
 
 describe("API guards", () => {
-  it("rejects <id>.localhost and foreign origins, allows localhost or none", async () => {
+  it("rejects every Origin; allows no Origin or Sec-Fetch-Site: none", async () => {
     const { call, create } = setup();
     const { id } = await create();
-    const artifactOrigin = await call("GET", "/api/artifacts", undefined, {
-      origin: `http://${id}.localhost:${PORT}`,
-    });
-    assert.equal(artifactOrigin.status, 403);
-    assert.equal((await artifactOrigin.json()).error, "forbidden");
-    const post = await call(
-      "POST",
-      "/api/artifacts",
-      { files: { "index.html": "x" } },
-      { origin: "http://evil.example" },
-    );
-    assert.equal(post.status, 403);
+    for (const origin of [
+      `http://${id}.localhost:${PORT}`,
+      "http://evil.example",
+      `http://localhost:${PORT}`,
+      `http://127.0.0.1:${PORT}`,
+    ]) {
+      const get = await call("GET", "/api/artifacts", undefined, { origin });
+      assert.equal(get.status, 403, origin);
+      assert.equal((await get.json()).error, "forbidden");
+      const post = await call(
+        "POST",
+        "/api/artifacts",
+        { files: { "index.html": "x" } },
+        { origin },
+      );
+      assert.equal(post.status, 403, origin);
+    }
+    assert.equal((await call("GET", "/api/artifacts")).status, 200);
     assert.equal(
-      (await call("GET", "/api/artifacts", undefined, { origin: `http://localhost:${PORT}` }))
-        .status,
+      (await call("GET", "/api/artifacts", undefined, { "sec-fetch-site": "none" })).status,
       200,
     );
-    assert.equal((await call("GET", "/api/artifacts")).status, 200);
+  });
+
+  it("rejects browser requests even with a valid token", async () => {
+    const { call } = setup({ token: "s3cret" });
+    const res = await call("GET", "/api/artifacts", undefined, {
+      authorization: "Bearer s3cret",
+      "sec-fetch-site": "same-origin",
+    });
+    assert.equal(res.status, 403);
+  });
+
+  it("refuses a same-origin path-mode page deleting another artifact", async () => {
+    const { call, create, service } = setup({ isolation: "path" });
+    const victim = await create();
+    const res = await call("DELETE", `/api/artifacts/${victim.id}`, undefined, {
+      origin: `http://localhost:${PORT}`,
+      "sec-fetch-site": "same-origin",
+    });
+    assert.equal(res.status, 403);
+    assert.deepEqual(await res.json(), {
+      error: "forbidden",
+      message: "the API is not available to web pages; use the CLI or an MCP client",
+    });
+    assert.equal((await service.read(victim.id)).ok, true);
   });
 
   it("requires the token on /api when set; viewing stays open", async () => {

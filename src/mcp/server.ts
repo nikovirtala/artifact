@@ -50,18 +50,12 @@ const INSTRUCTIONS =
   "and browser tabs open on an artifact's URL reload when it is republished. To change a page, " +
   "publish to its existing id instead of creating a new artifact; use artifact_list to find the id.";
 
-/** Per-request facts the tools need beyond their arguments. */
-type CallContext = {
-  /** The request came from a web page (it carries `Origin` or `Sec-Fetch-Site`). */
-  fromBrowser: boolean;
-};
-
 type ToolSpec<S extends z.ZodType> = {
   name: string;
   description: string;
   input: S;
   annotations: ToolAnnotations;
-  run: (args: z.infer<S>, context: CallContext) => Promise<Result<Record<string, unknown>>>;
+  run: (args: z.infer<S>) => Promise<Result<Record<string, unknown>>>;
 };
 
 const tool = <S extends z.ZodType>(spec: ToolSpec<S>) => spec as unknown as ToolSpec<z.ZodType>;
@@ -87,23 +81,12 @@ function tools(deps: McpDeps): ToolSpec<z.ZodType>[] {
   const entryFromPath = async (
     path: string,
     files: Readonly<Record<string, unknown>>,
-    { fromBrowser }: CallContext,
   ): Promise<Result<Uint8Array>> => {
     if (config.allowFilePath === false) {
       return fail(
         invalidInput(
           "file_path",
           "file_path is not supported by this server; send the page inline as files['index.html']",
-        ),
-      );
-    }
-    // A page served from this origin (path-mode /a/<id>/) passes the Origin guard; it must not
-    // get to read local files (docs/decisions/0035).
-    if (fromBrowser) {
-      return fail(
-        invalidInput(
-          "file_path",
-          "file_path is not accepted from browser pages; send the page inline as files['index.html']",
         ),
       );
     }
@@ -135,10 +118,10 @@ function tools(deps: McpDeps): ToolSpec<z.ZodType>[] {
       ].join(" "),
       input: PublishToolInputSchema,
       annotations: { title: "Publish artifact", destructiveHint: false, openWorldHint: false },
-      run: async ({ id, title, label, if_version, file_path, files }, context) => {
+      run: async ({ id, title, label, if_version, file_path, files }) => {
         const decoded = decodeFiles(files ?? {});
         if (file_path !== undefined) {
-          const entry = await entryFromPath(file_path, decoded, context);
+          const entry = await entryFromPath(file_path, decoded);
           if (!entry.ok) return entry;
           decoded[ENTRY_PAGE] = entry.value;
         }
@@ -243,7 +226,7 @@ function catalog(deps: McpDeps): Catalog {
   };
 }
 
-function createServer({ byName, listed }: Catalog, context: CallContext): Server {
+function createServer({ byName, listed }: Catalog): Server {
   // The low-level Server, not McpServer: McpServer answers schema failures with a plain-text
   // message, while these tools return the API's `invalid_request` object (docs/decisions/0034).
   const server = new Server(
@@ -266,7 +249,7 @@ function createServer({ byName, listed }: Catalog, context: CallContext): Server
       );
     }
     try {
-      const result = await spec.run(args.data, context);
+      const result = await spec.run(args.data);
       return result.ok ? toolResult(result.value) : toolResult(errorBody(result.error), true);
     } catch (error) {
       console.error(error);
@@ -283,14 +266,6 @@ const methodNotAllowed = () =>
   );
 
 /**
- * Browsers send `Origin` on every POST and `Sec-Fetch-Site` on every request to a trustworthy
- * origin such as localhost. Non-browser clients send neither; Node's fetch does send
- * `Sec-Fetch-Mode: cors`, so that header does not count.
- */
-const fromBrowser = (request: Request) =>
-  request.headers.has("origin") || request.headers.has("sec-fetch-site");
-
-/**
  * The `/mcp` handler. Stateless: every POST gets its own server and transport, so any instance
  * (or Lambda) can answer any request. GET (server-initiated stream) and DELETE (end session) have
  * nothing to do without sessions and get 405.
@@ -299,7 +274,7 @@ export function createMcpHandler(deps: McpDeps): (request: Request) => Promise<R
   const tools = catalog(deps);
   return async (request) => {
     if (request.method !== "POST") return methodNotAllowed();
-    const server = createServer(tools, { fromBrowser: fromBrowser(request) });
+    const server = createServer(tools);
     const transport = new WebStandardStreamableHTTPServerTransport({
       sessionIdGenerator: undefined,
       enableJsonResponse: true,

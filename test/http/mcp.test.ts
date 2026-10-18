@@ -42,40 +42,62 @@ describe("/mcp on the app", () => {
     assert.equal(r.value.url, `http://${r.value.id}.localhost:${PORT}/`);
   });
 
-  it("accepts the loopback origins and rejects every other Origin with 403 forbidden", async () => {
+  it("rejects every Origin and Sec-Fetch-Site other than none with 403 forbidden", async () => {
     const { post } = setup();
-    for (const origin of [`http://localhost:${PORT}`, `http://127.0.0.1:${PORT}`]) {
-      const res = await post(`http://localhost:${PORT}/mcp`, { origin });
-      assert.equal(res.status, 200, origin);
+    for (const headers of [
+      { origin: `http://localhost:${PORT}` },
+      { origin: `http://127.0.0.1:${PORT}` },
+      { origin: `http://${id}.localhost:${PORT}` },
+      { origin: "http://evil.example" },
+      { origin: "null" },
+      { "sec-fetch-site": "same-origin" },
+      { "sec-fetch-site": "cross-site" },
+    ] as Record<string, string>[]) {
+      const res = await post(`http://localhost:${PORT}/mcp`, headers);
+      assert.equal(res.status, 403, JSON.stringify(headers));
+      assert.deepEqual(await res.json(), {
+        error: "forbidden",
+        message: "the API is not available to web pages; use the CLI or an MCP client",
+      });
     }
-    for (const origin of [
-      `http://${id}.localhost:${PORT}`,
-      "http://evil.example",
-      `http://localhost:${PORT + 1}`,
-      "null",
-    ]) {
-      const res = await post(`http://localhost:${PORT}/mcp`, { origin });
-      assert.equal(res.status, 403, origin);
-      assert.equal((await res.json()).error, "forbidden");
-    }
+    assert.equal(
+      (await post(`http://localhost:${PORT}/mcp`, { "sec-fetch-site": "none" })).status,
+      200,
+    );
   });
 
-  it("refuses file_path from a same-origin page; inline files still work", async () => {
+  it("refuses file_path (and every tool) from a same-origin page at the guard", async () => {
     const { app } = setup({ isolation: "path" });
     const dir = mkdtempSync(join(tmpdir(), "artifact-mcp-origin-"));
     try {
       const secret = join(dir, "secret.html");
       writeFileSync(secret, "<p>secret</p>");
-      const page = await connectMcp(`http://localhost:${PORT}/mcp`, {
-        handler: app.fetch,
-        headers: { origin: `http://localhost:${PORT}`, "sec-fetch-site": "same-origin" },
+      const page = { origin: `http://localhost:${PORT}`, "sec-fetch-site": "same-origin" };
+      await assert.rejects(
+        connectMcp(`http://localhost:${PORT}/mcp`, { handler: app.fetch, headers: page }),
+      );
+      const res = await app.request(`http://localhost:${PORT}/mcp`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          accept: "application/json, text/event-stream",
+          ...page,
+        },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "tools/call",
+          params: { name: "artifact_publish", arguments: { file_path: secret } },
+        }),
       });
-      const r = await page.call("artifact_publish", { file_path: secret });
-      assert.equal(r.isError, true);
-      assert.deepEqual([r.value.error, r.value.field], ["invalid_input", "file_path"]);
-      assert.deepEqual((await page.call("artifact_list")).value.artifacts, []);
-      const inline = await page.call("artifact_publish", { files: { "index.html": "<p>ok</p>" } });
-      assert.equal(inline.isError, false);
+      assert.equal(res.status, 403);
+      assert.equal((await res.json()).error, "forbidden");
+      // Node's fetch (and so Node-based agents) sends Sec-Fetch-Mode: cors; that is not a page.
+      const agent = await connectMcp(`http://localhost:${PORT}/mcp`, {
+        handler: app.fetch,
+        headers: { "sec-fetch-mode": "cors" },
+      });
+      assert.equal((await agent.call("artifact_publish", { file_path: secret })).isError, false);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
