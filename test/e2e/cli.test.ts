@@ -4,10 +4,20 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import { devNull } from "node:os";
 import { join } from "node:path";
 import { after, before, describe, it } from "node:test";
-import { cleanup, freePort, runCli, type Served, serve, tempRoot } from "../support/e2e.ts";
+import {
+  cleanup,
+  freePort,
+  openerLog,
+  runCli,
+  type Served,
+  serve,
+  tempRoot,
+} from "../support/e2e.ts";
 
 after(cleanup);
 
@@ -283,5 +293,186 @@ describe("artifact client errors (e2e)", () => {
     const missing = await cli(nothing, ["publish", join(tempRoot(), "nope.html"), "--json"]);
     assert.equal(missing.status, 1);
     assert.equal(JSON.parse(missing.stderr).error, "io_error");
+  });
+});
+
+describe("artifact list, read, open (e2e)", () => {
+  let server: Server;
+  let repoA: string;
+  let repoB: string;
+  const inA: string[] = [];
+  let inB: string;
+  const html = "<!doctype html><h1>site</h1><img src=img.png>";
+  const png = randomBytes(2048);
+  let site: { id: string; url: string };
+
+  before(async () => {
+    server = await startServer();
+    repoA = gitRepo("https://github.com/Acme/A.git");
+    repoB = gitRepo("git@github.com:acme/b.git");
+    writeFileSync(join(repoA, "index.html"), "<p>a</p>");
+    writeFileSync(join(repoB, "index.html"), "<p>b</p>");
+    const dir = siteDir({ "index.html": html, "img.png": png, "css/a.css": "a{}" });
+    site = JSON.parse(
+      (
+        await ok(cli(server, ["publish", dir, "--json", "--title", "Site"], { cwd: repoA }))
+      ).stdout.toString(),
+    );
+    inA.push(site.id);
+    const second = await ok(cli(server, ["publish", "index.html", "--json"], { cwd: repoA }));
+    inA.push(JSON.parse(second.stdout.toString()).id);
+    const b = await ok(cli(server, ["publish", "index.html", "--json"], { cwd: repoB }));
+    inB = JSON.parse(b.stdout.toString()).id;
+  });
+
+  it("lists the derived project by default, every project with --all", async () => {
+    const listedA = await ok(cli(server, ["list"], { cwd: repoA }));
+    assert.equal(listedA.stderr, "1 more in other projects (or without a project); use --all\n");
+    const listA = listedA.stdout.toString();
+    const lines = listA.trimEnd().split("\n");
+    assert.equal(lines[0], "project: github.com/acme/a");
+    assert.match(lines[1], /^ID +VERSION +UPDATED +TITLE$/);
+    assert.equal(lines.length, 4);
+    for (const id of inA) assert.ok(listA.includes(id), id);
+    assert.ok(!listA.includes(inB));
+    assert.match(listA, new RegExp(`^${site.id} +1 +\\S+ +Site$`, "m"));
+
+    const listedAll = await ok(cli(server, ["list", "--all"], { cwd: repoA }));
+    assert.equal(listedAll.stderr, "");
+    const all = listedAll.stdout.toString();
+    const allLines = all.trimEnd().split("\n");
+    assert.equal(allLines[0], "all projects");
+    assert.match(allLines[1], /^ID +VERSION +UPDATED +PROJECT +TITLE$/);
+    assert.equal(allLines.length, 5);
+    for (const id of [...inA, inB]) assert.ok(all.includes(id), id);
+    assert.match(all, /github\.com\/acme\/b/);
+  });
+
+  it("lists as JSON, by --project, and refuses --all with --project", async () => {
+    const listedJson = await ok(cli(server, ["list", "--json"], { cwd: repoA }));
+    assert.equal(listedJson.stderr, "");
+    const json = JSON.parse(listedJson.stdout.toString());
+    assert.deepEqual(json.artifacts.map((a: { id: string }) => a.id).sort(), [...inA].sort());
+    const listedB = await ok(
+      cli(server, ["list", "--project", "https://github.com/Acme/B.git"], { cwd: repoA }),
+    );
+    assert.equal(listedB.stderr, "2 more in other projects (or without a project); use --all\n");
+    const byFlag = listedB.stdout.toString();
+    assert.match(byFlag, /^project: github\.com\/acme\/b\n/);
+    assert.ok(byFlag.includes(inB));
+    assert.ok(!byFlag.includes(inA[0]));
+    const limited = JSON.parse(
+      (await ok(cli(server, ["list", "--all", "--limit", "1", "--json"]))).stdout.toString(),
+    );
+    assert.equal(limited.artifacts.length, 1);
+    const limitedA = await ok(cli(server, ["list", "--limit", "1"], { cwd: repoA }));
+    assert.equal(limitedA.stdout.toString().trimEnd().split("\n").length, 3);
+    assert.equal(limitedA.stderr, "1 more in other projects (or without a project); use --all\n");
+    const listedElsewhere = await ok(cli(server, ["list"]));
+    assert.match(listedElsewhere.stdout.toString(), /^project: local:\/.*\nno artifacts\n$/);
+    assert.equal(
+      listedElsewhere.stderr,
+      "3 more in other projects (or without a project); use --all\n",
+    );
+    const both = await cli(server, ["list", "--all", "--project", "x"]);
+    assert.equal(both.status, 2);
+    assert.match(both.stderr, /^artifact list: --all and --project cannot be combined/);
+  });
+
+  it("prints no hint when nothing is hidden or the unfiltered request fails", async () => {
+    let unfiltered: "same" | "fail" = "same";
+    const artifact = { id: inB, project: "github.com/acme/b", currentVersion: 1, updatedAt: "t" };
+    const fake = createServer((req, res) => {
+      const filtered = new URL(req.url ?? "/", "http://x").searchParams.has("project");
+      if (!filtered && unfiltered === "fail") {
+        res.writeHead(500, { "content-type": "text/plain" });
+        res.end("boom");
+        return;
+      }
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ artifacts: [artifact] }));
+    });
+    await new Promise<void>((r) => fake.listen(0, "127.0.0.1", r));
+    try {
+      const base = `http://127.0.0.1:${(fake.address() as AddressInfo).port}`;
+      for (const mode of ["same", "fail"] as const) {
+        unfiltered = mode;
+        const result = await ok(cli({ base }, ["list"], { cwd: repoB }));
+        assert.match(result.stdout.toString(), /^project: github\.com\/acme\/b\n/);
+        assert.equal(result.stderr, "", mode);
+      }
+    } finally {
+      await new Promise((r) => fake.close(r));
+    }
+  });
+
+  it("reads files byte for byte, and the meta with --json", async () => {
+    const page = await ok(cli(server, ["read", site.id]));
+    assert.deepEqual(page.stdout, Buffer.from(html));
+    const image = await ok(cli(server, ["read", site.id, "--path", "img.png"]));
+    assert.deepEqual(image.stdout, png);
+    const meta = JSON.parse((await ok(cli(server, ["read", site.id, "--json"]))).stdout.toString());
+    assert.equal(meta.id, site.id);
+    assert.deepEqual(
+      meta.versions.map((v: { version: number }) => v.version),
+      [1],
+    );
+    const missing = await cli(server, ["read", site.id, "--path", "nope.css"]);
+    assert.equal(missing.status, 1);
+    assert.match(missing.stderr, /^error: not_found: /);
+    const combined = await cli(server, ["read", site.id, "--json", "--out", tempRoot()]);
+    assert.equal(combined.status, 2);
+  });
+
+  it("round-trips --out: edit the written files and publish them back", async () => {
+    const page = join(siteDir({ "p.html": "<p>v1</p>" }), "p.html");
+    const { id } = JSON.parse(
+      (await ok(cli(server, ["publish", page, "--json"]))).stdout.toString(),
+    );
+    const fromSite = tempRoot();
+    const wrote = await ok(cli(server, ["read", site.id, "--out", fromSite]));
+    assert.equal(wrote.stdout.toString(), `wrote 3 files of ${site.id} version 1 to ${fromSite}\n`);
+    assert.equal(readFileSync(join(fromSite, "index.html"), "utf8"), html);
+    assert.deepEqual(readFileSync(join(fromSite, "img.png")), png);
+    assert.equal(readFileSync(join(fromSite, "css", "a.css"), "utf8"), "a{}");
+
+    writeFileSync(join(fromSite, "index.html"), "<p>edited</p>");
+    const republished = await ok(cli(server, ["publish", fromSite, "--id", id]));
+    assert.equal(republished.stderr, `updated ${id} to version 2\n`);
+    assert.deepEqual((await ok(cli(server, ["read", id]))).stdout, Buffer.from("<p>edited</p>"));
+    assert.deepEqual((await ok(cli(server, ["read", id, "--path", "img.png"]))).stdout, png);
+    assert.deepEqual(
+      (await ok(cli(server, ["read", id, "--version", "1"]))).stdout,
+      Buffer.from("<p>v1</p>"),
+    );
+    const old = tempRoot();
+    await ok(cli(server, ["read", id, "--version", "1", "--out", old]));
+    assert.equal(readFileSync(join(old, "index.html"), "utf8"), "<p>v1</p>");
+  });
+
+  it("opens the URL through the test opener, pinned with --version", async () => {
+    const opened = await ok(cli(server, ["open", site.id]));
+    assert.equal(opened.stdout.toString(), `${site.url}\n`);
+    assert.ok(readFileSync(openerLog, "utf8").split("\n").includes(site.url));
+
+    const pinned = await ok(cli(server, ["open", site.id, "--version", "1", "--json"]));
+    const body = JSON.parse(pinned.stdout.toString());
+    assert.deepEqual(body, { id: site.id, url: `${site.url}v/1/`, opened: true });
+    assert.ok(readFileSync(openerLog, "utf8").split("\n").includes(`${site.url}v/1/`));
+
+    const none = await ok(cli(server, ["open", site.id, "--json"], { env: { BROWSER: "none" } }));
+    assert.equal(JSON.parse(none.stdout.toString()).opened, false);
+
+    const missing = await cli(server, ["open", site.id, "--version", "99"]);
+    assert.equal(missing.status, 1);
+    assert.match(missing.stderr, /^error: not_found: version 99 /);
+    assert.equal(missing.stdout.length, 0);
+    const missingJson = await cli(server, ["open", site.id, "--version", "99", "--json"]);
+    assert.equal(missingJson.status, 1);
+    assert.equal(missingJson.stdout.length, 0);
+    assert.deepEqual(JSON.parse(missingJson.stderr), {
+      error: "not_found",
+      message: `version 99 of artifact ${site.id} not found`,
+    });
   });
 });
