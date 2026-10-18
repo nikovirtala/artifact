@@ -118,6 +118,24 @@ export type Files = z.infer<typeof FilesSchema>;
 export type PublishBody = z.infer<typeof PublishBodySchema>;
 export type RollbackBody = z.infer<typeof RollbackBodySchema>;
 
+const utf8 = new TextDecoder("utf-8", { fatal: true });
+const TEXT_TYPES = /^(text\/|application\/json|image\/svg\+xml)/;
+
+/**
+ * Text files as a string, everything else (or invalid UTF-8) as `{base64}`: the encoding of
+ * `artifact_read` results and of `artifact publish` bodies (docs/decisions/0043).
+ */
+export function encodeFileValue(contentType: string, body: Uint8Array): FileValue {
+  if (TEXT_TYPES.test(contentType)) {
+    try {
+      return utf8.decode(body);
+    } catch {
+      // Not UTF-8 after all: fall through to base64.
+    }
+  }
+  return { base64: Buffer.from(body).toString("base64") };
+}
+
 /** Validated `files` → the core's `path → string | bytes` map. */
 export function decodeFiles(files: Files): Record<string, string | Uint8Array> {
   const out: Record<string, string | Uint8Array> = {};

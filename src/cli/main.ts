@@ -14,6 +14,7 @@ import {
   HelpRequested,
   UsageError,
 } from "./output.ts";
+import * as publish from "./publish.ts";
 import { runServe } from "./serve.ts";
 
 type Command = {
@@ -27,6 +28,13 @@ type Command = {
 const { version: PACKAGE_VERSION } = createRequire(import.meta.url)("../../package.json") as {
   version: string;
 };
+
+/** A client command module: `USAGE` and `run`. */
+const command = (
+  name: string,
+  summary: string,
+  module: { USAGE: string; run: Command["run"] },
+): Command => ({ name, summary, usage: module.USAGE, run: module.run });
 
 const notImplemented = (name: string, synopsis: string, summary: string): Command => ({
   name,
@@ -45,7 +53,7 @@ const commands: readonly Command[] = [
     usage: SERVE_USAGE,
     run: (args, ctx) => runServe(args, ctx.env),
   },
-  notImplemented("publish", "<file or dir> [options]", "Create or update; prints the URL"),
+  command("publish", "Create or update; prints the URL", publish),
   notImplemented("list", "[options]", "List artifacts"),
   notImplemented("read", "<id> [options]", "Print an artifact's files"),
   notImplemented("open", "<id> [options]", "Open an artifact in the browser"),
@@ -99,20 +107,20 @@ async function main(argv: readonly string[], ctx: CliContext): Promise<number> {
     ctx.stderr.write(usage());
     return EXIT.usage;
   }
-  const command = commands.find((c) => c.name === name);
-  if (!command) {
+  const selected = commands.find((c) => c.name === name);
+  if (!selected) {
     ctx.stderr.write(`artifact: unknown command '${name}'\n\n${usage()}`);
     return EXIT.usage;
   }
   try {
-    return await command.run(args, ctx);
+    return await selected.run(args, ctx);
   } catch (error) {
     if (error instanceof HelpRequested) {
-      ctx.stdout.write(command.usage);
+      ctx.stdout.write(selected.usage);
       return EXIT.ok;
     }
     if (error instanceof UsageError) {
-      ctx.stderr.write(`artifact ${command.name}: ${error.message}\n\n${command.usage}`);
+      ctx.stderr.write(`artifact ${selected.name}: ${error.message}\n\n${selected.usage}`);
       return EXIT.usage;
     }
     const [code, message, details] =
