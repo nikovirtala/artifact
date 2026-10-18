@@ -4,7 +4,8 @@
 //   2. claim n with a create-only put of src/index.html (losers move on to n + 1);
 //   3. write the remaining src/ files, then www/ (html injected), then manifest.json create-only;
 //   4. compare-and-swap the pointer on its etag (the commit), then notify.
-// A crash before step 4 leaves an orphaned version that is never current or listed.
+// A crash before step 4 leaves an orphaned version that is never current or listed;
+// `sweepOrphans` removes it once it is old enough.
 
 import {
   type ArtifactError,
@@ -39,6 +40,7 @@ import type {
   BlobStore,
   Clock,
   IdGen,
+  ListedObject,
   Notifier,
   PointerObject,
   PointerStore,
@@ -55,6 +57,15 @@ export const LIMITS = {
 
 const DEFAULT_MAX_ATTEMPTS = 20;
 const WRITE_CONCURRENCY = 16;
+
+/** Orphans younger than this are kept by `sweepOrphans`, so an in-flight publish is safe. */
+export const SWEEP_MIN_AGE_MS = 10 * 60 * 1000;
+
+/** Uncommitted versions and folders without `meta.json` removed by one sweep. */
+export type SweepResult = { versions: number; folders: number };
+
+/** Version directory names the publish protocol writes (`v/<n>/`); others are left alone. */
+const CANONICAL_VERSION = /^[1-9][0-9]*$/;
 
 /** File contents: bytes as-is, or a string stored as UTF-8. */
 export type FileBody = Uint8Array | string;
@@ -341,6 +352,57 @@ export class ArtifactService {
     const { keys } = await this.#blobs.list(artifactPrefix(id));
     await forEachLimited(keys, (key) => this.#blobs.delete(key));
     return ok(undefined);
+  }
+
+  /**
+   * Remove what crashes and lost races leave behind (docs/decisions/0047): version directories
+   * not listed in `meta.json`, and artifact folders without `meta.json`. Anything written in the
+   * last `minAgeMs` is kept, so an in-flight publish is never touched. Committed versions,
+   * pointers and folders whose name is not an artifact id are never deleted.
+   */
+  async sweepOrphans(options: { minAgeMs?: number } = {}): Promise<SweepResult> {
+    const cutoff = this.#clock.now().getTime() - (options.minAgeMs ?? SWEEP_MIN_AGE_MS);
+    const isOld = (objects: readonly ListedObject[]) =>
+      objects.every((o) => o.lastModified.getTime() <= cutoff);
+    const result: SweepResult = { versions: 0, folders: 0 };
+    const { commonPrefixes } = await this.#blobs.list(ARTIFACTS_PREFIX, { delimiter: "/" });
+    const ids = commonPrefixes
+      .map((p) => p.slice(ARTIFACTS_PREFIX.length, -1))
+      .filter((id) => isArtifactId(id));
+    for (const id of ids) {
+      const pointer = await this.#readPointer(id);
+      if (!pointer) {
+        const { objects } = await this.#blobs.list(artifactPrefix(id));
+        if (objects.length === 0 || !isOld(objects)) continue;
+        if (await this.#readPointer(id)) continue;
+        await forEachLimited(objects, (o) => this.#blobs.delete(o.key));
+        result.folders++;
+        continue;
+      }
+      const versionsPrefix = `${artifactPrefix(id)}v/`;
+      const groups = new Map<string, ListedObject[]>();
+      for (const object of (await this.#blobs.list(versionsPrefix)).objects) {
+        const segment = object.key.slice(versionsPrefix.length).split("/", 1)[0];
+        if (!CANONICAL_VERSION.test(segment)) continue;
+        groups.set(segment, [...(groups.get(segment) ?? []), object]);
+      }
+      const isCommitted = (meta: ArtifactMeta, segment: string) =>
+        meta.versions.some((v) => String(v.version) === segment);
+      for (const [segment, objects] of groups) {
+        if (isCommitted(pointer.meta, segment) || !isOld(objects)) continue;
+        const current = await this.#readPointer(id);
+        if (!current || isCommitted(current.meta, segment)) continue;
+        // The claim key goes last, so no publisher can claim the number while it is emptied.
+        const claim = `${versionsPrefix}${segment}/src/${ENTRY_PAGE}`;
+        await forEachLimited(
+          objects.filter((o) => o.key !== claim),
+          (o) => this.#blobs.delete(o.key),
+        );
+        await this.#blobs.delete(claim);
+        result.versions++;
+      }
+    }
+    return result;
   }
 
   async #create(
