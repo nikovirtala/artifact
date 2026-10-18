@@ -5,7 +5,7 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { request } from "node:http";
 import { join } from "node:path";
 import { after, describe, it } from "node:test";
-import { cleanup, env, freePort, main, serve, tempRoot } from "../support/e2e.ts";
+import { cleanup, cliCommand, env, freePort, serve, tempRoot } from "../support/e2e.ts";
 
 after(cleanup);
 
@@ -26,11 +26,8 @@ function raw(port: number, path: string, host: string): Promise<{ status: number
 }
 
 function runSync(port: number, root: string) {
-  return spawnSync(process.execPath, [main, "serve", "--port", String(port), "--root", root], {
-    encoding: "utf8",
-    env,
-    timeout: 10_000,
-  });
+  const [command, args] = cliCommand("serve", "--port", String(port), "--root", root);
+  return spawnSync(command, args, { encoding: "utf8", env, timeout: 10_000 });
 }
 
 describe("artifact serve (e2e)", () => {
