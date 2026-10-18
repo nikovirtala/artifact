@@ -44,3 +44,11 @@ One short file per decision, numbered in order. Status is **Accepted** (in effec
 | [0038](0038-tool-selection-wording.md) | Tool-selection wording and the CLAUDE.md snippet | Accepted |
 | [0039](0039-project-identifier-and-filtering.md) | Project identifier and list filtering; users and sessions deferred | Accepted |
 | [0040](0040-auto-open-new-artifacts.md) | Open new artifacts in the browser | Accepted |
+| [0041](0041-cli-client-conventions.md) | CLI client conventions: server, token, output, `--json`, exit codes | Accepted |
+| [0042](0042-cli-project-derivation.md) | Project derivation in the CLI, shared by publish, list and init | Accepted |
+| [0043](0043-cli-publish-and-read.md) | `artifact publish` and `artifact read` (`--out`, manifest route) | Accepted |
+| [0044](0044-cli-open-rollback-rm.md) | `artifact open`, `rollback`, `rm`; `ARTIFACT_OPENER_LOG` | Accepted |
+| [0045](0045-stdio-mcp-bridge.md) | `artifact mcp`: stdio bridge over SDK transports | Accepted |
+| [0046](0046-artifact-init.md) | `artifact init`: snippet block, project pin, settings merge | Accepted |
+| [0047](0047-orphan-sweep.md) | Orphan sweep on startup; `lastModified` in `BlobStore.list` | Accepted |
+| [0048](0048-packaging-and-pack-test.md) | Packaging and the `test:pack` tarball test | Accepted |

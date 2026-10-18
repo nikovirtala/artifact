@@ -18,3 +18,5 @@ The spec requires the local pointer update to be "temp file + rename under a per
 ## Consequences
 
 Two server processes on the same root could interleave pointer writes. That setup is unsupported. Every operation passes the shared contract suite (`test/contract/fs-store.test.ts`).
+
+Update (M5): `list` reports each file's `mtime` as `lastModified` (one `stat` per listed file). The orphan sweep deletes through the store, so pruning removes emptied version and artifact directories ([0047](0047-orphan-sweep.md)).

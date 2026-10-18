@@ -31,3 +31,5 @@ The core must run unchanged on local disk now and on S3 (or DynamoDB for the poi
 The S3 adapter maps 412 to `precondition_failed` and runs the same contract suite (`test/contract/blob-store.contract.ts`). Keys that S3 allows but a filesystem cannot hold (`a` and `a/b` at the same time) never occur in the layout, and the contract does not test them.
 
 Update (M3): `ArtifactEvent` gained `{type: "deleted", id}` ([0029](0029-deleted-event.md)). The HTTP app takes the subscribe side as its own `events` dependency, still outside the port ([0030](0030-heartbeat-and-listener-lifecycle.md)).
+
+Update (M5): `BlobStore.list` results gain `objects: [{key, lastModified}]` alongside `keys`, the S3 `Contents[].LastModified` shape, so the core can age orphans ([0047](0047-orphan-sweep.md)). Every adapter must fill it; the contract suite checks it.
