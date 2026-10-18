@@ -1,6 +1,7 @@
 // `artifact serve`: config → lock the root → wire the service → listen until SIGINT/SIGTERM.
 import { mkdir } from "node:fs/promises";
 import { getRequestListener } from "@hono/node-server";
+import { createBrowserOpener } from "../adapters/browser-opener.ts";
 import { createFsStore } from "../adapters/fs-store.ts";
 import { acquireLock } from "../adapters/lockfile.ts";
 import { createMemoryNotifier } from "../adapters/memory-notifier.ts";
@@ -61,7 +62,8 @@ export async function runServe(args: readonly string[], env: Env): Promise<numbe
     clock: systemClock,
     ids: createUlidIdGen(),
   });
-  const app = createApp({ service, events: notifier, config });
+  const opener = config.open ? createBrowserOpener({ warn: err }) : undefined;
+  const app = createApp({ service, events: notifier, config, opener });
 
   let listening: Listening;
   try {

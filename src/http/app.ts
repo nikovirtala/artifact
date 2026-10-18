@@ -4,6 +4,7 @@
 //   localhost etc.  → /api, /mcp (docs/decisions/0033), the gallery at /, and path-mode viewing
 //                     under /a/<id>/
 import { Hono } from "hono";
+import type { Opener } from "../adapters/browser-opener.ts";
 import type { ArtifactService } from "../core/artifact-service.ts";
 import { isArtifactId } from "../core/paths.ts";
 import { normalizeProject } from "../core/project.ts";
@@ -38,7 +39,13 @@ export type AppConfig = {
   heartbeatMs?: number;
 };
 
-export type AppDeps = { service: ArtifactService; events: ArtifactEvents; config: AppConfig };
+export type AppDeps = {
+  service: ArtifactService;
+  events: ArtifactEvents;
+  config: AppConfig;
+  /** Opens newly created artifacts in the browser; none means never (docs/decisions/0040). */
+  opener?: Opener;
+};
 
 const MCP_PATH = "/mcp";
 const VIEW_METHODS: ReadonlySet<string> = new Set(["GET", "HEAD"]);
@@ -92,7 +99,7 @@ export function createApp(deps: AppDeps): Hono<AppEnv> {
   app.route("/api", createApi(deps));
 
   // MCP behind the same browser and token guards as /api (docs/decisions/0027, 0037).
-  const mcp = createMcpHandler({ service, config });
+  const mcp = createMcpHandler({ service, config, opener: deps.opener });
   app.use(MCP_PATH, browserGuard(), tokenGuard(config.token));
   app.all(MCP_PATH, (c) => mcp(c.req.raw));
 

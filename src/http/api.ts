@@ -74,19 +74,29 @@ function filePath(c: Context<AppEnv>): string {
 }
 
 export function createApi(deps: AppDeps): Hono<AppEnv> {
-  const { service, config } = deps;
+  const { service, config, opener } = deps;
   const urlFor = (id: string) => artifactUrl(id, config);
+  /** `open`: a publish that may open the browser (`true` only on create); rollback omits it. */
   const published = (
     c: Context<AppEnv>,
     result: Result<{ id: string; version: number; project?: string }>,
     status: 200 | 201,
+    open?: boolean,
   ) => {
     if (!result.ok) return coreError(result.error);
     const { id, version, project } = result.value;
+    const url = urlFor(id);
     c.header("ETag", etag(version));
     if (status === 201) c.header("Location", `/api/artifacts/${id}`);
+    const opened = open && opener ? opener(url) : false;
     return c.json(
-      { id, version, url: urlFor(id), ...(project === undefined ? {} : { project }) },
+      {
+        id,
+        version,
+        url,
+        ...(project === undefined ? {} : { project }),
+        ...(open === undefined ? {} : { opened }),
+      },
       status,
     );
   };
@@ -163,11 +173,12 @@ export function createApi(deps: AppDeps): Hono<AppEnv> {
   api.post("/artifacts", async (c) => {
     const body = await jsonBody(c, PublishBodySchema);
     if (!body.ok) return body.response;
-    const { title, label, project, files } = body.value;
+    const { title, label, project, files, open } = body.value;
     return published(
       c,
       await service.publish({ title, label, project, files: decodeFiles(files) }),
       201,
+      open !== false,
     );
   });
 
@@ -195,6 +206,7 @@ export function createApi(deps: AppDeps): Hono<AppEnv> {
         files: decodeFiles(files),
       }),
       200,
+      false,
     );
   });
 

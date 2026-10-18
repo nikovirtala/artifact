@@ -67,6 +67,7 @@ describe("agent scenarios over MCP (e2e)", () => {
     assert.equal(created.isError, false, JSON.stringify(created.value));
     const { id, url } = created.value as { id: string; url: string };
     assert.equal(created.value.version, 1);
+    assert.equal(created.value.opened, false); // ARTIFACT_OPEN=0 in tests
     assert.equal(url, `http://${id}.localhost:${port}/`);
     const served = await get(port, "/", `${id}.localhost:${port}`);
     assert.equal(served.status, 200);
@@ -88,7 +89,7 @@ describe("agent scenarios over MCP (e2e)", () => {
       id,
       files: { "index.html": edited },
     });
-    assert.deepEqual(republished.value, { id, version: 2, url });
+    assert.deepEqual(republished.value, { id, version: 2, url, opened: false });
     assert.deepEqual(await tab.next(1000), {
       event: "published",
       id: "2",
@@ -109,7 +110,7 @@ describe("agent scenarios over MCP (e2e)", () => {
       id: found.id,
       files: { "index.html": page("Updated from a new session") },
     });
-    assert.deepEqual(updated.value, { id, version: 3, url });
+    assert.deepEqual(updated.value, { id, version: 3, url, opened: false });
     assert.equal((await tab.next(1000))?.data, '{"version":3}');
     const afterUpdate = await second.call("artifact_list");
     assert.equal((afterUpdate.value.artifacts as unknown[]).length, 1);
