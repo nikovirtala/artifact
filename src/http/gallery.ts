@@ -18,18 +18,31 @@ function displayTime(iso: string): string {
   return `${iso.slice(0, 10)} ${iso.slice(11, 16)} UTC`;
 }
 
-/** `items` in display order (the core lists newest first). */
+/** Gallery link filtered to one project (docs/decisions/0039). */
+const projectHref = (project: string) => escapeHtml(`/?project=${encodeURIComponent(project)}`);
+
+/** `items` in display order (the core lists newest first); `project` when filtered by it. */
 export function renderGallery(
   items: readonly ArtifactSummary[],
   urlFor: (id: string) => string,
+  project?: string,
 ): string {
   const rows = items.map((a) => {
     const url = escapeHtml(urlFor(a.id));
     const title = a.title === undefined ? "<em>untitled</em>" : escapeHtml(a.title);
     const updated = escapeHtml(a.updatedAt);
-    return `<li><a href="${url}">${title}</a> <span>v${a.currentVersion}</span> <time datetime="${updated}">${escapeHtml(displayTime(a.updatedAt))}</time></li>`;
+    const tag =
+      a.project === undefined
+        ? ""
+        : ` <a class="project" href="${projectHref(a.project)}">${escapeHtml(a.project)}</a>`;
+    return `<li><a href="${url}">${title}</a>${tag} <span>v${a.currentVersion}</span> <time datetime="${updated}">${escapeHtml(displayTime(a.updatedAt))}</time></li>`;
   });
-  const body = rows.length === 0 ? "<p>No artifacts yet.</p>" : `<ul>\n${rows.join("\n")}\n</ul>`;
+  const filter =
+    project === undefined
+      ? ""
+      : `<p>Project <strong>${escapeHtml(project)}</strong> · <a href="/">all projects</a></p>\n`;
+  const empty = project === undefined ? "No artifacts yet." : "No artifacts in this project.";
+  const body = `${filter}${rows.length === 0 ? `<p>${empty}</p>` : `<ul>\n${rows.join("\n")}\n</ul>`}`;
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -39,7 +52,7 @@ export function renderGallery(
 <style>
 body{font:16px/1.5 system-ui,sans-serif;max-width:48rem;margin:2rem auto;padding:0 1rem}
 ul{list-style:none;padding:0}li{padding:.4rem 0;border-bottom:1px solid #8884}
-span,time{color:#888;margin-left:.5rem;font-size:.9em}
+span,time,.project{color:#888;margin-left:.5rem;font-size:.9em}
 </style>
 </head>
 <body>

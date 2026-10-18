@@ -121,6 +121,61 @@ describe("agent scenarios over MCP (e2e)", () => {
     assert.equal(await server.exited, 0);
   });
 
+  it("a new session with the same project, spelled differently, finds and updates it", async (t) => {
+    const port = await freePort();
+    const server = await serve(port, tempRoot());
+    const endpoint = `http://localhost:${port}/mcp`;
+
+    const first = await connectMcp(endpoint);
+    const created = await first.call("artifact_publish", {
+      title: "Report",
+      project: "git@github.com:Acme/Widgets.git",
+      files: { "index.html": page("Report") },
+    });
+    assert.equal(created.isError, false, JSON.stringify(created.value));
+    const { id, url } = created.value as { id: string; url: string };
+    assert.equal(created.value.project, "github.com/acme/widgets");
+    // Noise from other codebases and from before projects existed.
+    await first.call("artifact_publish", {
+      title: "Report",
+      project: "https://github.com/acme/other",
+      files: { "index.html": page("Other") },
+    });
+    await first.call("artifact_publish", { title: "Report", files: { "index.html": page("Old") } });
+    await first.close();
+    t.diagnostic(`session 1 created ${id} in github.com/acme/widgets (+2 unrelated)`);
+
+    const second = await connectMcp(endpoint);
+    const listed = await second.call("artifact_list", {
+      project: "https://github.com/acme/widgets",
+    });
+    const artifacts = listed.value.artifacts as { id: string; project?: string }[];
+    assert.deepEqual(
+      artifacts.map((a) => [a.id, a.project]),
+      [[id, "github.com/acme/widgets"]],
+    );
+    const updated = await second.call("artifact_publish", {
+      id,
+      project: "https://github.com/acme/widgets",
+      files: { "index.html": page("Report v2") },
+    });
+    assert.deepEqual(
+      [updated.value.id, updated.value.version, updated.value.url, updated.value.project],
+      [id, 2, url, "github.com/acme/widgets"],
+    );
+    const again = await second.call("artifact_list", { project: "github.com/acme/widgets" });
+    assert.equal((again.value.artifacts as unknown[]).length, 1);
+    const all = await second.call("artifact_list", { all: true });
+    assert.equal((all.value.artifacts as unknown[]).length, 3);
+    t.diagnostic(
+      "session 2 (https spelling) listed 1, updated it to v2; still 1 in project, 3 total",
+    );
+    await second.close();
+
+    server.child.kill("SIGTERM");
+    assert.equal(await server.exited, 0);
+  });
+
   it("rejects browser requests with 403 and enforces ARTIFACT_TOKEN on /mcp", async () => {
     const port = await freePort();
     const server = await serve(port, tempRoot(), { ARTIFACT_TOKEN: "e2e-token" });

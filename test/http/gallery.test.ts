@@ -86,3 +86,54 @@ describe("gallery", () => {
     assert.ok((await res.text()).startsWith("page"));
   });
 });
+
+describe("gallery projects", () => {
+  it("shows each artifact's project, escaped, and filters with ?project=", async () => {
+    const { service, app } = setup();
+    const a = unwrap(
+      await service.publish({
+        title: "A",
+        project: "git@github.com:acme/a.git",
+        files: { "index.html": "a" },
+      }),
+    );
+    const odd = unwrap(
+      await service.publish({
+        title: "Odd",
+        project: 'local:/tmp/<x>&"y"',
+        files: { "index.html": "o" },
+      }),
+    );
+    const plain = unwrap(await service.publish({ title: "Plain", files: { "index.html": "p" } }));
+    const all = await (await app.request(`http://localhost:${PORT}/`)).text();
+    assert.match(
+      all,
+      /A<\/a> <a class="project" href="\/\?project=github.com%2Facme%2Fa">github.com\/acme\/a<\/a> <span>v1/,
+    );
+    assert.ok(all.includes("local:/tmp/&lt;x&gt;&amp;&quot;y&quot;"));
+    assert.ok(all.includes(`href="/?project=local%3A%2Ftmp%2F%3Cx%3E%26%22y%22"`));
+    assert.match(all, /Plain<\/a> <span>v1/);
+    assert.ok(!all.includes("<script"));
+
+    const res = await app.request(`http://localhost:${PORT}/?project=https://github.com/ACME/a`);
+    assert.equal(res.status, 200);
+    const filtered = await res.text();
+    assert.ok(filtered.includes(`${a.id}.localhost`));
+    assert.ok(!filtered.includes(`${odd.id}.localhost`));
+    assert.ok(!filtered.includes(`${plain.id}.localhost`));
+    assert.match(
+      filtered,
+      /Project <strong>github.com\/acme\/a<\/strong> · <a href="\/">all projects<\/a>/,
+    );
+    const empty = await (
+      await app.request(`http://localhost:${PORT}/?project=github.com/x/y`)
+    ).text();
+    assert.match(empty, /No artifacts in this project\./);
+  });
+
+  it("answers an invalid project with 400", async () => {
+    const res = await setup().app.request(`http://localhost:${PORT}/?project=nope`);
+    assert.equal(res.status, 400);
+    assert.equal(res.headers.get("content-type"), "text/plain; charset=utf-8");
+  });
+});

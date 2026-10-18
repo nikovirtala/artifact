@@ -6,6 +6,7 @@
 import { Hono } from "hono";
 import type { ArtifactService } from "../core/artifact-service.ts";
 import { isArtifactId } from "../core/paths.ts";
+import { normalizeProject } from "../core/project.ts";
 import { createMcpHandler } from "../mcp/server.ts";
 import { createApi } from "./api.ts";
 import { httpError, jsonError } from "./errors.ts";
@@ -95,10 +96,14 @@ export function createApp(deps: AppDeps): Hono<AppEnv> {
   app.use(MCP_PATH, browserGuard(), tokenGuard(config.token));
   app.all(MCP_PATH, (c) => mcp(c.req.raw));
 
-  app.get("/", async () => {
-    const list = await service.list();
+  app.get("/", async (c) => {
+    const raw = c.req.query("project");
+    const project = raw === undefined ? undefined : normalizeProject(raw);
+    if (project && !project.ok)
+      return plainText(400, "bad request: invalid project\n", GALLERY_CSP);
+    const list = await service.list({ project: project?.value });
     if (!list.ok) throw new Error(list.error.message);
-    const html = renderGallery(list.value, (id) => artifactUrl(id, config));
+    const html = renderGallery(list.value, (id) => artifactUrl(id, config), project?.value);
     return new Response(html, {
       headers: {
         ...securityHeaders(GALLERY_CSP),
