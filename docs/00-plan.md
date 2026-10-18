@@ -84,6 +84,7 @@ Three entry points share one core service: the HTTP server (viewing + JSON API),
 | --- | --- | --- |
 | `GET /api/artifacts` | `?limit=` (1..500, default 50), `?project=` | `{artifacts: [{id, title?, project?, currentVersion, updatedAt, url}]}`; with `project`, only that project's |
 | `GET /api/artifacts/:id` | — | Meta + version list + `url`; `ETag: "<currentVersion>"` |
+| `GET /api/artifacts/:id/versions/:version` | — | The committed version's manifest `{id, version, createdAt, label?, files: [{path, size, sha256, contentType}]}`; used by `artifact read --out` ([0043](decisions/0043-cli-publish-and-read.md)) |
 | `GET /api/artifacts/:id/files/*` | `?version=` | One `src/` file |
 | `POST /api/artifacts` | `{title?, label?, project?, open?, files: {path: "<utf8>" or {"base64": "<data>"}}}` | 201 `{id, version: 1, url, project?, opened}`; `ETag`; opens the URL unless `open: false` or auto-open is off |
 | `PUT /api/artifacts/:id` | same body + optional `if_version`; optional `If-Match: 3` or `"3"` | 200 `{id, version, url, project?, opened: false}` + `ETag`, or 409 `version_conflict`; `project` is the stored one |
@@ -119,10 +120,26 @@ One executable does both jobs. `artifact serve` runs the server; every other com
 | Command | Role | Does |
 | --- | --- | --- |
 | `artifact serve [--port 4400] [--root ~/.artifacts] [--host] [--isolation subdomain or path] [--csp] [--no-open]` | server | Viewing routes, `/api`, `/mcp`, SSE; opens new artifacts in the browser. Env: `ARTIFACT_PORT`, `ARTIFACT_CSP`, `ARTIFACT_TOKEN`, `ARTIFACT_OPEN=0`, `BROWSER=none` |
-| `artifact publish <file or dir> [--id] [--title] [--label]` | client | Creates or updates; prints the URL |
-| `artifact list`, `artifact read <id> [--version]`, `artifact open <id>` | client | Inspect; `open` launches the browser |
-| `artifact rollback <id> <version>`, `artifact rm <id>` | client | Move the pointer; delete |
+| `artifact publish <file or dir> [--id] [--if-version <n>] [--title] [--label] [--project or --no-project] [--no-open] [--json]` | client | Creates or updates; prints the URL |
+| `artifact list [--limit <n>] [--project or --all] [--json]` | client | Lists the working directory's project by default |
+| `artifact read <id> [--version <n>] [--path <path> or --out <dir> or --json]` | client | Prints a file as published, or writes every file of the version |
+| `artifact open <id> [--version <n>] [--json]` | client | Prints the URL and launches the browser |
+| `artifact rollback <id> <version> [--json]`, `artifact rm <id> [--yes] [--json]` | client | Move the pointer; delete |
 | `artifact mcp` | client | stdio MCP bridge to the running server, for MCP clients that cannot use HTTP |
+| `artifact init [--global] [--project] [--deny-builtin] [--dry-run]` | client | Writes the agent snippet to `CLAUDE.md`/`AGENTS.md` (or `~/.claude/CLAUDE.md`); needs no server |
+
+Client commands accept `--server <url>` and send `ARTIFACT_TOKEN` as a bearer token. Exit codes: 0 ok, 1 error, 2 usage error.
+
+Refinements from M5 ([0041](decisions/0041-cli-client-conventions.md)–[0048](decisions/0048-packaging-and-pack-test.md)):
+
+- Human output by default, `--json` for scripts; errors are `error: <code>: <message>` on stderr, or one JSON line `{"error", "message", …}` with `--json`; usage errors exit 2 ([0041](decisions/0041-cli-client-conventions.md)).
+- The CLI derives `project` like agents do, falling through when a remote does not normalise (a path remote); `list` filters by it unless `--all` and says on stderr how many it hid ([0042](decisions/0042-cli-project-derivation.md)).
+- `publish <dir>` skips file types the server rejects and lists them; `read` is byte-exact; `read --out` uses the new manifest route, and `publish <dir> --id` republishes the edit ([0043](decisions/0043-cli-publish-and-read.md)).
+- `open` always launches (except `BROWSER=none`); `rm` names the artifact in its prompt and needs `--yes` when stdin is not a terminal ([0044](decisions/0044-cli-open-rollback-rm.md)).
+- `artifact mcp` pipes SDK stdio and Streamable HTTP transports, answering requests with a JSON-RPC error when the server is unreachable ([0045](decisions/0045-stdio-mcp-bridge.md)).
+- `artifact init` keeps one marked block per file, re-runs byte-identically, and refuses invalid settings before writing anything ([0046](decisions/0046-artifact-init.md)).
+- `BlobStore.list` returns `lastModified`; `serve` sweeps orphans older than 10 minutes on startup ([0047](decisions/0047-orphan-sweep.md)).
+- `pnpm test:pack` runs the e2e suite against the installed tarball ([0048](decisions/0048-packaging-and-pack-test.md)).
 
 ## Tech stack and repo layout
 
@@ -233,11 +250,11 @@ Seven milestones (M0–M6), each shippable and verified before the next starts. 
      - [ ] The tool descriptions steer agents to publish HTML pages and "artifacts" here instead of built-in features; the README has a CLAUDE.md/AGENTS.md snippet.
      - [ ] With `project` passed, `artifact_list` returns only that project's artifacts; a new session with the same project (any URL spelling) finds and updates the artifact without a duplicate.
      - [ ] A publish that creates an artifact opens it in the browser (not updates or rollbacks), unless turned off or skipped; results say `opened`.
-6. **M5 — CLI + polish.** CLI commands, rollback, delete, labels, orphan sweep on startup, npm packaging, README with the npx quick start and the Claude Code setup line.
-   - [ ] Every CLI command has an e2e test against a temp root.
-   - [ ] README quick start works from a clean clone in under 2 minutes.
-   - [ ] `pnpm pack` tarball installed into a temp directory passes the e2e suite (catches anything still pointing at `.ts`).
-   - [ ] `npx @nikovirtala/artifact serve` starts the server from the tarball with no other setup.
+6. **M5 — CLI + polish.** CLI commands, rollback, delete, labels, orphan sweep on startup, npm packaging, README with the npx quick start and the Claude Code setup line. v1 is complete, pending the owner's acceptance.
+   - [x] Every CLI command has an e2e test against a temp root.
+   - [x] README quick start works from a clean clone in under 2 minutes.
+   - [x] `pnpm pack` tarball installed into a temp directory passes the e2e suite (catches anything still pointing at `.ts`).
+   - [x] `npx @nikovirtala/artifact serve` starts the server from the tarball with no other setup.
    - `artifact init` writes the agent snippet ([0038](decisions/0038-tool-selection-wording.md)): updates `CLAUDE.md` and `AGENTS.md` in the working directory if present, else creates `CLAUDE.md`; an idempotent block between `<!-- artifact:start -->` and `<!-- artifact:end -->`; `--dry-run`; `--global` targets `~/.claude/CLAUDE.md`; prints the `claude mcp add` line; pins the exact normalised `project` value in the snippet; opt-in `--deny-builtin` adds Claude Code's `"deny": ["Artifact"]` permission rule.
    - `artifact publish --no-open` suppresses the browser for one call (sends `open: false`, [0040](decisions/0040-auto-open-new-artifacts.md)).
    - Note: the orphan sweep also removes `artifacts/<id>/` folders without `meta.json`, skipping folders modified in the last few minutes ([0015](decisions/0015-publish-protocol-and-conflicts.md)).
@@ -260,7 +277,7 @@ The contract suite is the most important test asset: it is what lets the S3 adap
 
 | Layer | What | How |
 | --- | --- | --- |
-| Contract | `BlobStore` / `PointerStore` behaviour: get, put, list by prefix, conditional put (`If-Match`, `If-None-Match: *`), conflict errors | One suite in `test/contract/`, run against memory, fs, and later S3 (LocalStack or a real test bucket) |
+| Contract | `BlobStore` / `PointerStore` behaviour: get, put, list by prefix (with `lastModified`), conditional put (`If-Match`, `If-None-Match: *`), conflict errors | One suite in `test/contract/`, run against memory, fs, and later S3 (LocalStack or a real test bucket) |
 | Core | Service rules: versioning, pointer last, rollback, conflicts, limits | Memory adapters + fake clock and id generator; `fast-check` for paths and concurrent publish ordering |
 | HTTP | Routes, headers, guards, SSE framing | `app.request()` in-process, no sockets |
 | MCP | Tool schemas, results, errors | MCP SDK client against the in-process server |

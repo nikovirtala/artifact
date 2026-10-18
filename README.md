@@ -2,13 +2,51 @@
 
 Local server that hosts HTML artifacts at stable URLs, keeps every publish as an immutable version, and live-reloads open tabs when an agent republishes. See [docs/00-plan.md](docs/00-plan.md) for the spec and [docs/decisions/](docs/decisions/) for decision records.
 
-**Status: M4 (MCP).** `artifact serve` serves artifacts, a gallery, the JSON API and an MCP endpoint for agents, opens new artifacts in the browser, and open tabs reload when an artifact is republished. The client CLI commands, including the `artifact mcp` stdio bridge (M5), are not done yet.
+**Status: M5 (CLI + polish): v1 complete, pending the owner's acceptance.** `artifact serve` serves artifacts, a gallery, the JSON API and an MCP endpoint for agents, opens new artifacts in the browser, and open tabs reload when an artifact is republished. The client commands publish, list, read, open, roll back and delete artifacts, `artifact mcp` bridges stdio MCP clients, and `artifact init` writes the agent instructions.
+
+## Quick start
+
+Requires Node 24.
+
+```sh
+npx @nikovirtala/artifact serve        # keep running: http://localhost:4400/
+claude mcp add --scope user --transport http artifacts http://localhost:4400/mcp
+npx @nikovirtala/artifact init --global
+```
+
+The second line connects Claude Code once per machine. The third writes the agent instructions to `~/.claude/CLAUDE.md` (see [MCP](#mcp-agents) for why they are needed). Then ask Claude for an HTML page: it publishes here and the page opens in your browser.
+
+From a clone:
+
+```sh
+pnpm install
+node src/cli/main.ts serve
+node src/cli/main.ts publish page.html   # in another terminal; prints the URL
+```
+
+## CLI
+
+Every command has `--help`. Client commands talk to the server at `--server <url>`, `ARTIFACT_SERVER` or `http://localhost:4400`, and send `Authorization: Bearer $ARTIFACT_TOKEN` when `ARTIFACT_TOKEN` is set. They only use the API, never the storage directly.
+
+| Command | Flags | Does |
+| --- | --- | --- |
+| `artifact serve` | `--port`, `--root`, `--host`, `--isolation`, `--csp`, `--no-open` | Run the server (see [Serve](#serve)). |
+| `artifact publish <file or dir>` | `--id`, `--if-version <n>` (with `--id`), `--title`, `--label`, `--project` / `--no-project`, `--no-open`, `--json`, `--server` | Create an artifact, or add a version with `--id`, and print the URL. A file must be `.html` (or `.htm`) and becomes `index.html`. A directory needs `index.html`; names starting with `.`, symlinks and file types the server does not accept (such as `README` or `.ts`) are skipped, and the skipped types are listed on stderr. |
+| `artifact list` | `--project` / `--all`, `--limit <n>`, `--json`, `--server` | List artifacts, newest first. By default only the current repository's project (derived from git as agents derive it); the first line names the filter, and stderr says how many artifacts it hid (`3 more in other projects (or without a project); use --all`). |
+| `artifact read <id>` | `--version <n>`, `--path <path>` / `--out <dir>` / `--json`, `--server` | Print a file exactly as published (default `index.html` of the current version). `--out` writes every file of the version; edit them and republish with `artifact publish <dir> --id <id>`. |
+| `artifact open <id>` | `--version <n>`, `--json`, `--server` | Print the URL (pinned with `--version`) and open it in the browser, unless `BROWSER=none`. |
+| `artifact rollback <id> <version>` | `--json`, `--server` | Make an earlier version current again and print the URL. |
+| `artifact rm <id>` | `--yes`, `--json`, `--server` | Delete an artifact and all its versions. On a terminal it shows `Delete "<title>" (<id>, <n> versions)? [y/N]`; scripts must pass `--yes`. |
+| `artifact init` | `--global`, `--project`, `--deny-builtin`, `--dry-run`, `--server` | Write the agent instructions (see [MCP](#mcp-agents)). |
+| `artifact mcp` | `--server` | stdio MCP bridge to the running server's `/mcp`. |
+
+Output is human-readable; `--json` prints the API response (`open` prints `{id, url, opened}`, `rm` prints `{"ok": true}`, `publish` adds `skipped` when it skipped files). Errors go to stderr as `error: <code>: <message>`; with `--json` they go to stderr as one JSON line in the API's shape, `{"error": "<code>", "message": "…", …}`. Usage errors are always the message plus usage. Exit codes: `0` ok, `1` error (including API errors such as `version_conflict` and no server answering), `2` usage error. Details: ADRs [0041](docs/decisions/0041-cli-client-conventions.md)–[0046](docs/decisions/0046-artifact-init.md).
 
 ## Serve
 
 ```sh
-node src/cli/main.ts serve                # http://localhost:4400/, storage in ~/.artifacts
-node src/cli/main.ts serve --help
+npx @nikovirtala/artifact serve           # http://localhost:4400/, storage in ~/.artifacts
+npx @nikovirtala/artifact serve --help
 ```
 
 | Flag / env | Default | Meaning |
@@ -20,6 +58,7 @@ node src/cli/main.ts serve --help
 | `--csp <policy>` / `ARTIFACT_CSP` | none | `Content-Security-Policy` sent on artifact pages. |
 | `ARTIFACT_TOKEN` | unset | If set, `/api` and `/mcp` require `Authorization: Bearer <token>`. Viewing stays open. |
 | `--no-open` / `ARTIFACT_OPEN=0` / `BROWSER=none` | open | Do not open new artifacts in the browser. Also skipped over SSH (`SSH_CONNECTION`), on Linux without `DISPLAY`/`WAYLAND_DISPLAY`, and with a non-loopback `--host`. |
+| `ARTIFACT_OPENER_LOG=<file>` | unset | Write opened URLs to this file instead of launching a browser (for tests and CI). Applies to `serve` and `artifact open`. |
 
 URLs:
 
@@ -42,6 +81,7 @@ Notes:
 
 - **CSP.** A custom `--csp` must allow `'self'` scripts and connections (`script-src 'self'; connect-src 'self'`, or `default-src 'self'`). Otherwise live reload cannot load `/__artifact/reload.js` or open its event stream.
 - **Safari.** Safari resolves `http://<id>.localhost:4400/` without `/etc/hosts` entries ([0010](docs/decisions/0010-safari-localhost.md)). If `*.localhost` does not resolve somewhere, use `http://localhost:4400/a/<id>/`, or start with `--isolation path`.
+- **Orphan sweep.** On startup, `serve` deletes uncommitted versions and folders without `meta.json` left by a crash, once they are at least 10 minutes old; committed versions are never touched ([0047](docs/decisions/0047-orphan-sweep.md)).
 - **Path mode shares one origin.** Pages under `/a/<id>/` share storage (localStorage, cookies) with each other. No web page can call `/api` or `/mcp`: requests with an `Origin` header or a `Sec-Fetch-Site` other than `none` get 403 ([0037](docs/decisions/0037-no-browser-requests-to-api-and-mcp.md)). Use curl, the CLI or an MCP client.
 
 ## MCP (agents)
@@ -70,7 +110,11 @@ For this codebase, pass exactly `project: "github.com/you/repo"` on every artifa
 
 `artifact init` writes the snippet and this line for the current repository into its `CLAUDE.md` and/or `AGENTS.md`; `artifact init --global` writes the snippet alone to `~/.claude/CLAUDE.md`. Re-running it updates the block in place.
 
-Any MCP client that speaks Streamable HTTP can use `http://localhost:4400/mcp`. The endpoint is stateless (no sessions) and has the same browser and token guards as `/api`.
+Any MCP client that speaks Streamable HTTP can use `http://localhost:4400/mcp`. The endpoint is stateless (no sessions) and has the same browser and token guards as `/api`. For clients that only launch stdio servers, `artifact mcp` forwards stdio to the running server ([0045](docs/decisions/0045-stdio-mcp-bridge.md)):
+
+```sh
+claude mcp add --scope user artifacts -- npx @nikovirtala/artifact mcp
+```
 
 | Tool | Input | Result |
 | --- | --- | --- |
