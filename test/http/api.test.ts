@@ -190,7 +190,12 @@ describe("PUT /api/artifacts/:id", () => {
     );
     assert.equal(ok.status, 200);
     assert.equal(ok.headers.get("etag"), '"2"');
-    assert.deepEqual(await ok.json(), { id, version: 2, url: `http://${id}.localhost:${PORT}/` });
+    assert.deepEqual(await ok.json(), {
+      id,
+      version: 2,
+      url: `http://${id}.localhost:${PORT}/`,
+      opened: false,
+    });
     const quoted = await call(
       "PUT",
       `/api/artifacts/${id}`,
@@ -440,6 +445,7 @@ describe("projects on the API", () => {
       version: 2,
       url: a.url,
       project: "github.com/acme/a",
+      opened: false,
     });
     assert.deepEqual(await ids(`?project=${q}`), [a.id]);
   });

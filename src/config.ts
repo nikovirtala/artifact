@@ -16,6 +16,8 @@ export type ServeConfig = {
   isolation: Isolation;
   csp?: string;
   token?: string;
+  /** Open new artifacts in the browser (docs/decisions/0040). */
+  open: boolean;
 };
 
 export type ServeConfigResult =
@@ -34,10 +36,14 @@ Options:
                               a non-loopback address requires ARTIFACT_TOKEN
   --isolation subdomain|path  URL style returned by the API and gallery (default subdomain)
   --csp <policy>              Content-Security-Policy for artifact pages (env ARTIFACT_CSP)
+  --no-open                   Do not open new artifacts in the browser
   -h, --help                  Show this help
 
 Environment:
   ARTIFACT_TOKEN              If set, /api and /mcp require "Authorization: Bearer <token>"
+  ARTIFACT_OPEN=0, BROWSER=none
+                              Do not open new artifacts in the browser (also skipped over
+                              SSH, without a display, and with a non-loopback --host)
 `;
 
 /** `localhost`, `::1` or any 127.0.0.0/8 address. */
@@ -47,6 +53,26 @@ export function isLoopback(host: string): boolean {
   if (family === 4) return host.startsWith("127.");
   if (family === 6) return host === "::1" || host === "0:0:0:0:0:0:0:1";
   return false;
+}
+
+const OFF: ReadonlySet<string> = new Set(["0", "false", "no", "off"]);
+
+/** Whether `serve` opens new artifacts in the browser (docs/decisions/0040). */
+export function autoOpen(options: {
+  noOpen: boolean;
+  host?: string;
+  env: Env;
+  platform: NodeJS.Platform;
+}): boolean {
+  const { noOpen, host, env, platform } = options;
+  if (noOpen) return false;
+  if (OFF.has(envValue(env, "ARTIFACT_OPEN")?.toLowerCase() ?? "")) return false;
+  if (env.BROWSER === "none") return false;
+  if (envValue(env, "SSH_CONNECTION") !== undefined) return false;
+  const desktop = platform === "darwin" || platform === "win32";
+  const display = envValue(env, "DISPLAY") ?? envValue(env, "WAYLAND_DISPLAY");
+  if (!desktop && display === undefined) return false;
+  return host === undefined || isLoopback(host);
 }
 
 /** Empty strings count as unset. */
@@ -65,6 +91,7 @@ export function resolveServeConfig(
   args: readonly string[],
   env: Env,
   home: string = homedir(),
+  platform: NodeJS.Platform = process.platform,
 ): ServeConfigResult {
   let values: Record<string, string | boolean | undefined>;
   try {
@@ -78,6 +105,7 @@ export function resolveServeConfig(
         host: { type: "string" },
         isolation: { type: "string" },
         csp: { type: "string" },
+        "no-open": { type: "boolean" },
         help: { type: "boolean", short: "h" },
       },
     }));
@@ -128,7 +156,8 @@ export function resolveServeConfig(
     );
   }
 
-  const config: ServeConfig = { port, root, isolation };
+  const open = autoOpen({ noOpen: values["no-open"] === true, host, env, platform });
+  const config: ServeConfig = { port, root, isolation, open };
   if (host !== undefined) config.host = host;
   const csp = str("csp") ?? envValue(env, "ARTIFACT_CSP");
   if (csp !== undefined) config.csp = csp;

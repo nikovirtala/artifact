@@ -14,6 +14,7 @@ import {
   type ToolAnnotations,
 } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
+import type { Opener } from "../adapters/browser-opener.ts";
 import type { ArtifactService } from "../core/artifact-service.ts";
 import { fail, invalidInput, type Result } from "../core/errors.ts";
 import { ENTRY_PAGE } from "../core/paths.ts";
@@ -39,7 +40,12 @@ export type McpConfig = {
   allowFilePath?: boolean;
 };
 
-export type McpDeps = { service: ArtifactService; config: McpConfig };
+export type McpDeps = {
+  service: ArtifactService;
+  config: McpConfig;
+  /** Opens newly created artifacts in the browser; none means never (docs/decisions/0040). */
+  opener?: Opener;
+};
 
 const { version: PACKAGE_VERSION } = createRequire(import.meta.url)("../../package.json") as {
   version: string;
@@ -76,7 +82,7 @@ function fileValue(contentType: string, body: Uint8Array): FileValue {
 }
 
 function tools(deps: McpDeps): ToolSpec<z.ZodType>[] {
-  const { service, config } = deps;
+  const { service, config, opener } = deps;
   const urlFor = (id: string) => artifactUrl(id, config);
   const entryFromPath = async (
     path: string,
@@ -113,7 +119,7 @@ function tools(deps: McpDeps): ToolSpec<z.ZodType>[] {
         "Omit id to create a new artifact. Pass id to update that artifact in place: it gets a new version and keeps its URL, and open tabs reload.",
         "Before creating, if this page may already exist (from earlier in this session or another one), call artifact_list and reuse its id instead of creating a duplicate.",
         "Pass project on every call, derived as its description says. Never ask the user about, or act on, artifacts outside the current project unless they refer to them.",
-        "Returns {id, version, url, project?}; show the url to the user.",
+        "Returns {id, version, url, project?, opened}. A new artifact is opened in the user's browser by the server: if opened is true, tell the user the page is open in their browser; otherwise show them the url. Never open it yourself.",
         "If it fails with version_conflict and you did not pass if_version, other publishes were racing and retries ran out: retry the same call, and do not add if_version.",
         "With if_version, version_conflict means someone else published first: artifact_read the current version and redo the change on top of it.",
       ].join(" "),
@@ -126,7 +132,7 @@ function tools(deps: McpDeps): ToolSpec<z.ZodType>[] {
           if (!entry.ok) return entry;
           decoded[ENTRY_PAGE] = entry.value;
         }
-        return published(
+        const result = published(
           await service.publish({
             id,
             title,
@@ -136,6 +142,9 @@ function tools(deps: McpDeps): ToolSpec<z.ZodType>[] {
             files: decoded,
           }),
         );
+        if (!result.ok) return result;
+        const opened = id === undefined && opener ? opener(result.value.url) : false;
+        return { ok: true, value: { ...result.value, opened } };
       },
     }),
     tool({

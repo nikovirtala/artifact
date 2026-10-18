@@ -3,7 +3,7 @@
 import { runServe } from "./serve.ts";
 
 const commands = [
-  ["serve [--port] [--root] [--host] [--isolation] [--csp]", "Run the server"],
+  ["serve [--port] [--root] [--host] [--isolation] [--csp] [--no-open]", "Run the server"],
   ["publish <file or dir> [--id] [--title] [--label]", "Create or update; prints the URL"],
   ["list", "List artifacts"],
   ["read <id> [--version]", "Print an artifact's files"],

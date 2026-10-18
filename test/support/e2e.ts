@@ -8,7 +8,14 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 export const main = fileURLToPath(new URL("../../src/cli/main.ts", import.meta.url));
-export const env = { ...process.env, ARTIFACT_TOKEN: "", ARTIFACT_PORT: "", ARTIFACT_CSP: "" };
+export const env = {
+  ...process.env,
+  ARTIFACT_TOKEN: "",
+  ARTIFACT_PORT: "",
+  ARTIFACT_CSP: "",
+  // Never launch a real browser from tests.
+  ARTIFACT_OPEN: "0",
+};
 const children: ChildProcess[] = [];
 const roots: string[] = [];
 

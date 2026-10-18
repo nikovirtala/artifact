@@ -23,6 +23,8 @@ export const PublishBodySchema = z.strictObject({
   files: FilesSchema,
   /** Update only if this is still the current version. Ignored on create. */
   if_version: z.number().int().positive().optional(),
+  /** `false`: do not open this new artifact in the browser (docs/decisions/0040). API only. */
+  open: z.boolean().optional(),
 });
 
 export const RollbackBodySchema = z.strictObject({
@@ -46,33 +48,35 @@ const PROJECT_DESCRIPTION =
   "Use the same value for every call in the session.";
 const ProjectSchema = z.string().optional().describe(PROJECT_DESCRIPTION);
 
-export const PublishToolInputSchema = PublishBodySchema.extend({
-  id: IdSchema.optional().describe(
-    "Omit to create a new artifact. Pass an existing id to add a version to it; the URL stays the same.",
-  ),
-  title: PublishBodySchema.shape.title.describe("Title shown in the gallery and artifact_list."),
-  label: PublishBodySchema.shape.label.describe(
-    `Short name for this version, at most ${LIMITS.maxLabelChars} characters.`,
-  ),
-  project: ProjectSchema.describe(
-    `${PROJECT_DESCRIPTION} It is stored when the artifact is created and never changes.`,
-  ),
-  file_path: z
-    .string()
-    .optional()
-    .describe(
-      "Absolute path of a local .html file, published as index.html. Supporting files are not read from disk: pass them in files. Local server only.",
+export const PublishToolInputSchema = PublishBodySchema.omit({ open: true })
+  .extend({
+    id: IdSchema.optional().describe(
+      "Omit to create a new artifact. Pass an existing id to add a version to it; the URL stays the same.",
     ),
-  files: FilesSchema.optional().describe(
-    'Relative path → contents. "index.html" is required unless file_path is given. A string is UTF-8 text; {"base64": "…"} is binary.',
-  ),
-  if_version: PublishBodySchema.shape.if_version.describe(
-    "Update only if this is still the current version, else version_conflict. Ignored when creating.",
-  ),
-}).refine((input) => input.files !== undefined || input.file_path !== undefined, {
-  message: "pass files, file_path, or both",
-  path: ["files"],
-});
+    title: PublishBodySchema.shape.title.describe("Title shown in the gallery and artifact_list."),
+    label: PublishBodySchema.shape.label.describe(
+      `Short name for this version, at most ${LIMITS.maxLabelChars} characters.`,
+    ),
+    project: ProjectSchema.describe(
+      `${PROJECT_DESCRIPTION} It is stored when the artifact is created and never changes.`,
+    ),
+    file_path: z
+      .string()
+      .optional()
+      .describe(
+        "Absolute path of a local .html file, published as index.html. Supporting files are not read from disk: pass them in files. Local server only.",
+      ),
+    files: FilesSchema.optional().describe(
+      'Relative path → contents. "index.html" is required unless file_path is given. A string is UTF-8 text; {"base64": "…"} is binary.',
+    ),
+    if_version: PublishBodySchema.shape.if_version.describe(
+      "Update only if this is still the current version, else version_conflict. Ignored when creating.",
+    ),
+  })
+  .refine((input) => input.files !== undefined || input.file_path !== undefined, {
+    message: "pass files, file_path, or both",
+    path: ["files"],
+  });
 
 export const ListToolInputSchema = z.strictObject({
   limit: z

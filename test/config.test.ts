@@ -1,10 +1,14 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { isLoopback, resolveServeConfig } from "../src/config.ts";
+import { autoOpen, isLoopback, resolveServeConfig } from "../src/config.ts";
 
 const HOME = "/home/u";
-const resolveOk = (args: string[], env: Record<string, string> = {}) => {
-  const result = resolveServeConfig(args, env, HOME);
+const resolveOk = (
+  args: string[],
+  env: Record<string, string> = {},
+  platform: NodeJS.Platform = "darwin",
+) => {
+  const result = resolveServeConfig(args, env, HOME, platform);
   assert.ok(result.ok && !result.help, JSON.stringify(result));
   return result;
 };
@@ -18,7 +22,7 @@ describe("resolveServeConfig", () => {
   it("defaults to port 4400, subdomain isolation and ~/.artifacts", () => {
     assert.deepEqual(resolveOk([]), {
       ok: true,
-      config: { port: 4400, root: "/home/u/.artifacts", isolation: "subdomain" },
+      config: { port: 4400, root: "/home/u/.artifacts", isolation: "subdomain", open: true },
       warnings: [],
     });
   });
@@ -29,6 +33,7 @@ describe("resolveServeConfig", () => {
       port: 5000,
       root: "/home/u/.artifacts",
       isolation: "subdomain",
+      open: true,
       csp: "default-src *",
       token: "t",
     });
@@ -48,6 +53,7 @@ describe("resolveServeConfig", () => {
         port: 4400,
         root: "/home/u/.artifacts",
         isolation: "subdomain",
+        open: true,
       },
     );
   });
@@ -86,6 +92,49 @@ describe("resolveServeConfig", () => {
   it("returns help for -h and --help", () => {
     assert.deepEqual(resolveServeConfig(["-h"], {}, HOME), { ok: true, help: true });
     assert.deepEqual(resolveServeConfig(["--help"], {}, HOME), { ok: true, help: true });
+  });
+});
+
+describe("auto-open", () => {
+  const open = (
+    env: Record<string, string> = {},
+    platform: NodeJS.Platform = "darwin",
+    noOpen = false,
+    host?: string,
+  ) => autoOpen({ noOpen, host, env, platform });
+
+  it("is on by default on desktops and on Linux with a display", () => {
+    assert.equal(open({}, "darwin"), true);
+    assert.equal(open({}, "win32"), true);
+    assert.equal(open({ DISPLAY: ":0" }, "linux"), true);
+    assert.equal(open({ WAYLAND_DISPLAY: "wayland-0" }, "linux"), true);
+    assert.equal(open({}, "darwin", false, "127.0.0.1"), true);
+    assert.equal(open({ ARTIFACT_OPEN: "1", BROWSER: "firefox" }), true);
+  });
+
+  it("is off with --no-open, ARTIFACT_OPEN=0 or BROWSER=none", () => {
+    assert.equal(open({}, "darwin", true), false);
+    for (const value of ["0", "false", "no", "off", "OFF"]) {
+      assert.equal(open({ ARTIFACT_OPEN: value }), false, value);
+    }
+    assert.equal(open({ BROWSER: "none" }), false);
+  });
+
+  it("is skipped over SSH, on Linux without a display and off loopback", () => {
+    assert.equal(open({ SSH_CONNECTION: "10.0.0.1 5000 10.0.0.2 22" }), false);
+    assert.equal(open({ SSH_CONNECTION: "1 2 3 4", DISPLAY: ":0" }, "linux"), false);
+    assert.equal(open({}, "linux"), false);
+    assert.equal(open({ DISPLAY: "" }, "freebsd"), false);
+    assert.equal(open({}, "darwin", false, "0.0.0.0"), false);
+  });
+
+  it("is resolved into the serve config", () => {
+    assert.equal(resolveOk(["--no-open"]).config.open, false);
+    assert.equal(resolveOk([], { ARTIFACT_OPEN: "0" }).config.open, false);
+    assert.equal(resolveOk([], {}, "linux").config.open, false);
+    assert.equal(resolveOk([], { DISPLAY: ":0" }, "linux").config.open, true);
+    assert.equal(resolveOk(["--host", "0.0.0.0"], { ARTIFACT_TOKEN: "t" }).config.open, false);
+    assert.match(resolveErr(["--open"]), /artifact serve: .*--open/);
   });
 });
 

@@ -77,6 +77,10 @@ describe("tools/list", () => {
       d.artifact_publish,
       /version_conflict.*retry the same call, and do not add if_version/,
     );
+    assert.match(
+      d.artifact_publish,
+      /if opened is true, tell the user the page is open in their browser; otherwise show them the url\. Never open it yourself\./,
+    );
     assert.match(d.artifact_list, /recover the id .* instead of creating a duplicate/);
     assert.match(d.artifact_read, /Read before editing an artifact this session did not publish/);
     assert.match(d.artifact_read, /not the page served/);
