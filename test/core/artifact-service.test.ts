@@ -456,6 +456,46 @@ describe("ArtifactService.readFile", () => {
   });
 });
 
+describe("ArtifactService.readManifest", () => {
+  it("returns the manifest of a committed version only", async () => {
+    const { service, store } = harness();
+    const { id } = unwrap(
+      await service.publish({ label: "one", files: { "index.html": "a", "b/c.css": "c{}" } }),
+    );
+    unwrap(await service.publish({ id, files: { "index.html": "two" } }));
+    const v1 = unwrap(await service.readManifest(id.toUpperCase(), 1));
+    assert.equal(v1.id, id);
+    assert.equal(v1.version, 1);
+    assert.equal(v1.label, "one");
+    assert.equal(v1.createdAt, "2026-10-17T12:00:00.000Z");
+    assert.deepEqual(
+      v1.files.map((f) => [f.path, f.size, f.contentType]),
+      [
+        ["b/c.css", 3, "text/css; charset=utf-8"],
+        ["index.html", 1, "text/html; charset=utf-8"],
+      ],
+    );
+    assert.equal(v1.files[1].sha256, createHash("sha256").update("a").digest("hex"));
+    assert.deepEqual(
+      unwrap(await service.readManifest(id, 2)).files.map((f) => f.path),
+      ["index.html"],
+    );
+
+    // An orphaned (uncommitted) version is not readable even though its manifest exists.
+    await store.put(`artifacts/${id}/v/3/manifest.json`, new TextEncoder().encode("{}"));
+    for (const [rawId, version] of [
+      [id, 3],
+      [id, 9],
+      ["0000000000000000000000000z", 1],
+    ] as const) {
+      const missing = await service.readManifest(rawId, version);
+      assert.equal(!missing.ok && missing.error.code, "not_found", `${rawId} ${version}`);
+    }
+    const bad = await service.readManifest("nope", 1);
+    assert.equal(!bad.ok && bad.error.code, "invalid_input");
+  });
+});
+
 describe("ArtifactService.readServed", () => {
   it("reads www/ files of the current or a pinned committed version", async () => {
     const { service } = harness();

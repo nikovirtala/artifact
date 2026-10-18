@@ -152,6 +152,18 @@ export function createApi(deps: AppDeps): Hono<AppEnv> {
     return c.json({ ...details.value, url: urlFor(details.value.id) });
   });
 
+  api.get("/artifacts/:id/versions/:version", async (c) => {
+    const raw = c.req.param("version");
+    const version = Number(raw);
+    if (!POSITIVE_INTEGER.test(raw) || !Number.isSafeInteger(version)) {
+      return badRequest("version must be a positive integer");
+    }
+    const manifest = await service.readManifest(c.req.param("id"), version);
+    if (!manifest.ok) return coreError(manifest.error);
+    const { id, createdAt, label, files } = manifest.value;
+    return c.json({ id, version, createdAt, ...(label === undefined ? {} : { label }), files });
+  });
+
   api.get("/artifacts/:id/files/*", async (c) => {
     const version = queryInt(c, "version", Number.MAX_SAFE_INTEGER);
     if (!version.ok) return version.response;
