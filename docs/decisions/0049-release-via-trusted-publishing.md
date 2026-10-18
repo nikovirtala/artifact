@@ -33,6 +33,8 @@ v1 is complete. 1.0.0 should reach npm without a long-lived npm token anywhere a
 
 AGENTS.md says all commits and tags are signed. Release tags `vX.Y.Z` are created by GitHub Actions through the API and are not GPG-signed. This is a deliberate exception owned by the owner; the commit they point at is the reviewed commit on `main`, and npm provenance links each version to it.
 
+The steps are in [RELEASING.md](../../RELEASING.md).
+
 ## Consequences
 
 Merging a version bump publishes it with no further step, so review of the release pull request is the release approval. Merges that do not change the version run the workflow and skip. If several pushes to `main` queue up, GitHub keeps only the newest pending run, which publishes the version at its own commit; of two version bumps merged in quick succession, only the later one may publish. Changing the Node major means editing `mise.toml` and both workflows; renaming `publish.yml` breaks publishing until the trusted publisher is recreated. Updating an action means resolving its new commit SHA.

@@ -147,6 +147,10 @@ pnpm build                    # emit dist/ for the npm package
 pnpm format                   # apply biome formatting and fixes
 ```
 
+## Releases
+
+Merging a pull request that bumps `version` in `package.json` publishes it to npm from GitHub Actions and creates the GitHub Release. See [RELEASING.md](RELEASING.md).
+
 ## License
 
 [MIT](LICENSE)
