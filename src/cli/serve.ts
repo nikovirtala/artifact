@@ -2,7 +2,6 @@
 // SIGINT/SIGTERM.
 import { mkdir } from "node:fs/promises";
 import { getRequestListener } from "@hono/node-server";
-import { createBrowserOpener } from "../adapters/browser-opener.ts";
 import { createFsStore } from "../adapters/fs-store.ts";
 import { acquireLock } from "../adapters/lockfile.ts";
 import { createMemoryNotifier } from "../adapters/memory-notifier.ts";
@@ -12,6 +11,7 @@ import { type Env, resolveServeConfig, SERVE_USAGE } from "../config.ts";
 import { ArtifactService } from "../core/artifact-service.ts";
 import { createApp } from "../http/app.ts";
 import { type Listening, listen, PortInUseError } from "../http/server.ts";
+import { createCliOpener } from "./opener.ts";
 
 const out = (s: string) => process.stdout.write(`${s}\n`);
 const err = (s: string) => process.stderr.write(`${s}\n`);
@@ -78,7 +78,7 @@ export async function runServe(args: readonly string[], env: Env): Promise<numbe
   } catch (error) {
     err(`artifact: warning: orphan sweep failed: ${(error as Error).message}`);
   }
-  const opener = config.open ? createBrowserOpener({ warn: err }) : undefined;
+  const opener = config.open ? createCliOpener({ env, warn: err }) : undefined;
   const app = createApp({ service, events: notifier, config, opener });
 
   let listening: Listening;

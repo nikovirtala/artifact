@@ -24,7 +24,7 @@ import {
   DEFAULT_LIST_LIMIT,
   DeleteToolInputSchema,
   decodeFiles,
-  type FileValue,
+  encodeFileValue,
   ListToolInputSchema,
   MAX_BODY_BYTES,
   PublishToolInputSchema,
@@ -72,21 +72,6 @@ type ToolSpec<S extends z.ZodType> = {
 };
 
 const tool = <S extends z.ZodType>(spec: ToolSpec<S>) => spec as unknown as ToolSpec<z.ZodType>;
-
-const utf8 = new TextDecoder("utf-8", { fatal: true });
-const TEXT_TYPES = /^(text\/|application\/json|image\/svg\+xml)/;
-
-/** Text files as a string, everything else (or invalid UTF-8) as `{base64}`: publish's encoding. */
-function fileValue(contentType: string, body: Uint8Array): FileValue {
-  if (TEXT_TYPES.test(contentType)) {
-    try {
-      return utf8.decode(body);
-    } catch {
-      // Not UTF-8 after all: fall through to base64.
-    }
-  }
-  return { base64: Buffer.from(body).toString("base64") };
-}
 
 function tools(deps: McpDeps): ToolSpec<z.ZodType>[] {
   const { service, config, opener } = deps;
@@ -198,7 +183,7 @@ function tools(deps: McpDeps): ToolSpec<z.ZodType>[] {
         const file = await service.readFile(id, { version, path });
         if (!file.ok) return file;
         const { body, ...rest } = file.value;
-        return { ok: true, value: { ...rest, content: fileValue(rest.contentType, body) } };
+        return { ok: true, value: { ...rest, content: encodeFileValue(rest.contentType, body) } };
       },
     }),
     tool({
