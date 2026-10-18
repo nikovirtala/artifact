@@ -38,7 +38,7 @@ export type Client = {
 type Fetch = typeof globalThis.fetch;
 
 /** The low-level cause of a fetch rejection (`ECONNREFUSED`, `ENOTFOUND`, …). */
-function networkCause(error: unknown): string {
+export function networkCause(error: unknown): string {
   const cause = (error as { cause?: unknown }).cause as
     | { code?: unknown; message?: unknown; errors?: { code?: unknown }[] }
     | undefined;

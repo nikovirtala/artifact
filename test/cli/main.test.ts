@@ -45,12 +45,6 @@ describe("artifact cli", () => {
     assert.match(result.stderr, /unknown command 'bogus'/);
   });
 
-  it("commands not built yet say so", () => {
-    const result = run("mcp");
-    assert.equal(result.status, 1);
-    assert.match(result.stderr, /'mcp' is not implemented yet/);
-  });
-
   it("serve --help prints its options and exits 0", () => {
     const result = run("serve", "--help");
     assert.equal(result.status, 0, result.stderr);
