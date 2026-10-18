@@ -249,6 +249,61 @@ describe("PUT /api/artifacts/:id", () => {
   });
 });
 
+describe("GET /api/artifacts/:id/versions/:version", () => {
+  it("returns the version's manifest", async () => {
+    const { call, create } = setup();
+    const { id } = await create({ label: "first", files: { "index.html": "x", "a/b.json": "{}" } });
+    const res = await call("GET", `/api/artifacts/${id}/versions/1`);
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.deepEqual(Object.keys(body), ["id", "version", "createdAt", "label", "files"]);
+    assert.equal(body.id, id);
+    assert.equal(body.version, 1);
+    assert.equal(body.label, "first");
+    assert.deepEqual(
+      body.files.map((f: { path: string; size: number }) => [f.path, f.size]),
+      [
+        ["a/b.json", 2],
+        ["index.html", 1],
+      ],
+    );
+    assert.match(body.files[0].sha256, /^[0-9a-f]{64}$/);
+    assert.equal(body.files[0].contentType, "application/json");
+  });
+
+  it("is 404 for unknown artifacts and versions, 400 for a malformed version", async () => {
+    const { call, create, store } = setup();
+    const { id } = await create();
+    await store.put(`artifacts/${id}/v/2/manifest.json`, new TextEncoder().encode("{}"));
+    for (const path of [
+      `/api/artifacts/${id}/versions/2`,
+      `/api/artifacts/${id}/versions/9`,
+      "/api/artifacts/0000000000000000000000000z/versions/1",
+    ]) {
+      const res = await call("GET", path);
+      assert.equal(res.status, 404, path);
+      assert.equal((await res.json()).error, "not_found");
+    }
+    for (const version of ["0", "x", "01", "1.5"]) {
+      const res = await call("GET", `/api/artifacts/${id}/versions/${version}`);
+      assert.equal(res.status, 400, version);
+      assert.equal((await res.json()).error, "bad_request");
+    }
+  });
+
+  it("is behind the browser and token guards", async () => {
+    const { call, create } = setup();
+    const { id } = await create();
+    const browser = await call("GET", `/api/artifacts/${id}/versions/1`, undefined, {
+      "sec-fetch-site": "same-origin",
+    });
+    assert.equal(browser.status, 403);
+    const guarded = setup({ token: "s3cret" });
+    const res = await guarded.call("GET", `/api/artifacts/${id}/versions/1`);
+    assert.equal(res.status, 401);
+  });
+});
+
 describe("rollback and delete", () => {
   it("rolls back with 200 + ETag and emits a published event", async () => {
     const { call, create, notifier } = setup();

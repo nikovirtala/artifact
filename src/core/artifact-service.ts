@@ -268,6 +268,20 @@ export class ArtifactService {
     return ok({ ...summary(pointer.meta), versions: pointer.meta.versions });
   }
 
+  /** The manifest of a committed version: its files with size, sha256 and content type. */
+  async readManifest(rawId: string, version: number): Promise<Result<Manifest>> {
+    const normalized = normalizeId(rawId);
+    if (!normalized.ok) return normalized;
+    const id = normalized.value;
+    const pointer = await this.#readPointer(id);
+    if (!pointer) return artifactNotFound(id);
+    const manifest = pointer.meta.versions.some((v) => v.version === version)
+      ? await this.#blobs.get(manifestKey(id, version))
+      : undefined;
+    if (!manifest) return fail(notFound(`version ${version} of artifact ${id} not found`));
+    return ok(JSON.parse(decoder.decode(manifest)) as Manifest);
+  }
+
   /** One file exactly as published (from `src/`); defaults to `index.html` of the current version. */
   async readFile(
     rawId: string,
