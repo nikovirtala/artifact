@@ -5,6 +5,8 @@
 import { createRequire } from "node:module";
 import { homedir } from "node:os";
 import { SERVE_USAGE } from "../config.ts";
+import * as list from "./list.ts";
+import * as open from "./open.ts";
 import {
   type CliContext,
   CliError,
@@ -15,6 +17,7 @@ import {
   UsageError,
 } from "./output.ts";
 import * as publish from "./publish.ts";
+import * as read from "./read.ts";
 import { runServe } from "./serve.ts";
 
 type Command = {
@@ -54,9 +57,9 @@ const commands: readonly Command[] = [
     run: (args, ctx) => runServe(args, ctx.env),
   },
   command("publish", "Create or update; prints the URL", publish),
-  notImplemented("list", "[options]", "List artifacts"),
-  notImplemented("read", "<id> [options]", "Print an artifact's files"),
-  notImplemented("open", "<id> [options]", "Open an artifact in the browser"),
+  command("list", "List artifacts", list),
+  command("read", "Print an artifact's files", read),
+  command("open", "Open an artifact in the browser", open),
   notImplemented(
     "rollback",
     "<id> <version> [options]",
