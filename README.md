@@ -2,7 +2,7 @@
 
 Local server that hosts HTML artifacts at stable URLs, keeps every publish as an immutable version, and live-reloads open tabs when an agent republishes. See [docs/00-plan.md](docs/00-plan.md) for the spec and [docs/decisions/](docs/decisions/) for decision records.
 
-**Status: M4 (MCP).** `artifact serve` serves artifacts, a gallery, the JSON API and an MCP endpoint for agents, and open tabs reload when an artifact is republished. The client CLI commands, including the `artifact mcp` stdio bridge (M5), are not done yet.
+**Status: M4 (MCP).** `artifact serve` serves artifacts, a gallery, the JSON API and an MCP endpoint for agents, opens new artifacts in the browser, and open tabs reload when an artifact is republished. The client CLI commands, including the `artifact mcp` stdio bridge (M5), are not done yet.
 
 ## Serve
 
@@ -19,6 +19,7 @@ node src/cli/main.ts serve --help
 | `--isolation subdomain\|path` | `subdomain` | URL style returned by the API and the gallery. |
 | `--csp <policy>` / `ARTIFACT_CSP` | none | `Content-Security-Policy` sent on artifact pages. |
 | `ARTIFACT_TOKEN` | unset | If set, `/api` and `/mcp` require `Authorization: Bearer <token>`. Viewing stays open. |
+| `--no-open` / `ARTIFACT_OPEN=0` / `BROWSER=none` | open | Do not open new artifacts in the browser. Also skipped over SSH (`SSH_CONNECTION`), on Linux without `DISPLAY`/`WAYLAND_DISPLAY`, and with a non-loopback `--host`. |
 
 URLs:
 
@@ -32,6 +33,8 @@ Publish with the API:
 curl -X POST http://localhost:4400/api/artifacts -H 'content-type: application/json' \
   -d '{"title":"Hello","files":{"index.html":"<h1>hi</h1>"}}'
 ```
+
+A publish that creates an artifact opens it in your default browser; the response says `"opened": true`. Pass `"open": false` in the body to skip that for one call. Updates and rollbacks never open a tab: the open one reloads ([0040](docs/decisions/0040-auto-open-new-artifacts.md)).
 
 The API routes are in the spec ("HTTP: JSON API"). The details are in ADRs [0021](docs/decisions/0021-api-file-encoding.md) (file encoding: a string, or `{"base64": …}`), [0022](docs/decisions/0022-if-match-and-etag.md) (`If-Match`/`ETag`) and [0023](docs/decisions/0023-http-errors-and-list-limit.md) (errors).
 
@@ -51,17 +54,29 @@ claude mcp add --transport http artifacts http://localhost:4400/mcp
 claude mcp add --transport http artifacts http://localhost:4400/mcp --header "Authorization: Bearer $ARTIFACT_TOKEN"
 ```
 
+Then tell the agent to use it. **This step is required in Claude Code:** its built-in `Artifact` tool takes priority over any MCP tool description, so without the instruction Claude publishes to claude.ai instead. Paste this into `~/.claude/CLAUDE.md` (every project), a project's `CLAUDE.md`, or `AGENTS.md`:
+
+```md
+For HTML pages, mock-ups, visualizations, reports, dashboards and "artifacts", use the `artifacts` MCP server (`artifact_publish`) instead of the built-in Artifact tool, and give me the URL. Reuse ids via `artifact_list` instead of creating duplicates. Pass `project` on every call, derived as the tool describes (`git remote get-url origin`, else `local:` + the git toplevel, else `local:` + the working directory).
+```
+
+If Claude still reaches for the built-in tool, block it in `~/.claude/settings.json` with `{"permissions": {"deny": ["Artifact"]}}` (deny rules always win; not yet verified for this tool, and it disables the built-in feature everywhere until removed).
+
+To pin the project, add a line such as ``Use `project: "github.com/you/repo"` for the artifacts tools.`` (`artifact init`, planned for M5, will write this block).
+
 Any MCP client that speaks Streamable HTTP can use `http://localhost:4400/mcp`. The endpoint is stateless (no sessions) and has the same browser and token guards as `/api`.
 
 | Tool | Input | Result |
 | --- | --- | --- |
-| `artifact_publish` | `files` and/or `file_path`, `id?`, `title?`, `label?`, `if_version?` | `{id, version, url}`. Omit `id` to create; pass it to update in place (same URL, open tabs reload). |
-| `artifact_list` | `limit?` (1..500, default 50) | `{artifacts: [{id, title?, currentVersion, updatedAt, url}]}`. Find an id before updating. |
+| `artifact_publish` | `files` and/or `file_path`, `id?`, `title?`, `label?`, `if_version?`, `project?` | `{id, version, url, project?, opened}`. Omit `id` to create (opens in the browser); pass it to update in place (same URL, open tabs reload). |
+| `artifact_list` | `limit?` (1..500, default 50), `project?`, `all?` | `{artifacts: [{id, title?, project?, currentVersion, updatedAt, url}]}`. Find an id before updating. |
 | `artifact_read` | `id`, `version?`, `path?` (default `index.html`) | `{id, version, path, contentType, content}`: the file as published, without the reload tag. |
 | `artifact_rollback` | `id`, `version` | `{id, version, url}`: current moves back to that version. |
 | `artifact_delete` | `id`, `confirm: true` | `{ok: true}`. Only when the user asks. |
 
-`files` uses the API encoding: a string is UTF-8, `{"base64": "…"}` is binary. `file_path` is the absolute path of a local `.html` file, published as `index.html`; supporting files are only included if they are also listed in `files`. Errors come back as tool errors (`isError`) with the API's `{"error", "message", …}` object. See ADRs [0033](docs/decisions/0033-mcp-transport-and-sdk.md)–[0036](docs/decisions/0036-mcp-tool-descriptions.md).
+`files` uses the API encoding: a string is UTF-8, `{"base64": "…"}` is binary. `file_path` is the absolute path of a local `.html` file, published as `index.html`; supporting files are only included if they are also listed in `files`. Errors come back as tool errors (`isError`) with the API's `{"error", "message", …}` object. See ADRs [0033](docs/decisions/0033-mcp-transport-and-sdk.md)–[0040](docs/decisions/0040-auto-open-new-artifacts.md).
+
+**Projects.** Every artifact can belong to the codebase it was made in, so an agent sees only that project's artifacts. The agent passes `project` (a git remote URL, or `local:<absolute path>` without a remote); the server normalises it, so `git@github.com:you/repo.git` and `https://github.com/You/repo` are the same project, `github.com/you/repo`. It is set when the artifact is created and never changes. `artifact_list` with `project` returns only that project's artifacts; `all: true`, or no `project`, returns everything, including artifacts made before projects existed. It is a filter, not a permission: any id can still be read or updated. The gallery shows each artifact's project and filters with `http://localhost:4400/?project=github.com/you/repo` ([0039](docs/decisions/0039-project-identifier-and-filtering.md)).
 
 ## Live reload
 
