@@ -258,6 +258,7 @@ Seven milestones (M0–M6), each shippable and verified before the next starts. 
    - `artifact init` writes the agent snippet ([0038](decisions/0038-tool-selection-wording.md)): updates `CLAUDE.md` and `AGENTS.md` in the working directory if present, else creates `CLAUDE.md`; an idempotent block between `<!-- artifact:start -->` and `<!-- artifact:end -->`; `--dry-run`; `--global` targets `~/.claude/CLAUDE.md`; prints the `claude mcp add` line; pins the exact normalised `project` value in the snippet; opt-in `--deny-builtin` adds Claude Code's `"deny": ["Artifact"]` permission rule.
    - `artifact publish --no-open` suppresses the browser for one call (sends `open: false`, [0040](decisions/0040-auto-open-new-artifacts.md)).
    - Note: the orphan sweep also removes `artifacts/<id>/` folders without `meta.json`, skipping folders modified in the last few minutes ([0015](decisions/0015-publish-protocol-and-conflicts.md)).
+   - Release: v1 ships as 1.0.0 from the GitHub Actions publish workflow (trusted publishing), published automatically when the version bump is merged to `main`; CI runs `pnpm check` and `pnpm test:pack` on every pull request ([0049](decisions/0049-release-via-trusted-publishing.md)).
 7. **M6 — AWS adapters (later).** See AWS migration path.
 
 ### How live reload works
