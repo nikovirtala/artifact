@@ -71,6 +71,20 @@ describe("resolveServeConfig", () => {
     assert.match(resolveErr(["extra"]), /artifact serve: /);
   });
 
+  it("marks flag errors as usage errors, environment errors not", () => {
+    const usage = (args: string[], env: Record<string, string> = {}) => {
+      const result = resolveServeConfig(args, env, HOME);
+      assert.ok(!result.ok);
+      return result.usage === true;
+    };
+    assert.equal(usage(["--port", "x"]), true);
+    assert.equal(usage(["--isolation", "bogus"]), true);
+    assert.equal(usage(["--bogus"]), true);
+    assert.equal(usage(["extra"]), true);
+    assert.equal(usage([], { ARTIFACT_PORT: "x" }), false);
+    assert.equal(usage(["--host", "0.0.0.0"]), false);
+  });
+
   it("expands ~ and resolves --root to an absolute path", () => {
     assert.equal(resolveOk(["--root", "~/x"]).config.root, "/home/u/x");
     assert.equal(resolveOk(["--root", "/tmp/r/../s"]).config.root, "/tmp/s");

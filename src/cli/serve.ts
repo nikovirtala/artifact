@@ -20,6 +20,10 @@ const err = (s: string) => process.stderr.write(`${s}\n`);
 export async function runServe(args: readonly string[], env: Env): Promise<number> {
   const resolved = resolveServeConfig(args, env);
   if (!resolved.ok) {
+    if (resolved.usage) {
+      process.stderr.write(`${resolved.message}\n\n${SERVE_USAGE}`);
+      return 2;
+    }
     err(`${resolved.message}\nRun 'artifact serve --help' for usage.`);
     return 1;
   }
