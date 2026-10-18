@@ -52,3 +52,4 @@ One short file per decision, numbered in order. Status is **Accepted** (in effec
 | [0046](0046-artifact-init.md) | `artifact init`: snippet block, project pin, settings merge | Accepted |
 | [0047](0047-orphan-sweep.md) | Orphan sweep on startup; `lastModified` in `BlobStore.list` | Accepted |
 | [0048](0048-packaging-and-pack-test.md) | Packaging and the `test:pack` tarball test | Accepted |
+| [0049](0049-release-via-trusted-publishing.md) | Release on merge via GitHub Actions trusted publishing | Accepted |

@@ -16,3 +16,5 @@ Node does not strip types inside `node_modules`, so the tarball must work as bui
 ## Consequences
 
 Anything in the package that still points at `.ts`, or a missing asset, fails `test:pack`. The owner publishes with `npm publish` (`prepublishOnly` still runs check + build).
+
+Update (release): `test:pack` also runs in CI on every pull request and push to `main`, and in the publish workflow before a version is published. Releases go through that workflow, not a manual `npm publish` (0049).
