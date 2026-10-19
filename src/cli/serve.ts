@@ -1,5 +1,6 @@
 // `artifact serve`: config → lock the root → wire the service → sweep orphans → listen until
-// SIGINT/SIGTERM.
+// SIGINT/SIGTERM. An injected store (the S3 dev harness, docs/decisions/0062) replaces the fs
+// root and its lock: conditional writes are the lock there.
 import { mkdir } from "node:fs/promises";
 import { getRequestListener } from "@hono/node-server";
 import { createFsStore } from "../adapters/fs-store.ts";
@@ -7,8 +8,9 @@ import { acquireLock } from "../adapters/lockfile.ts";
 import { createMemoryNotifier } from "../adapters/memory-notifier.ts";
 import { systemClock } from "../adapters/system-clock.ts";
 import { createUlidIdGen } from "../adapters/ulid.ts";
-import { type Env, resolveServeConfig, SERVE_USAGE } from "../config.ts";
+import { type Env, resolveServeConfig, SERVE_USAGE, type ServeConfig } from "../config.ts";
 import { ArtifactService } from "../core/artifact-service.ts";
+import type { BlobStore, PointerStore } from "../core/ports.ts";
 import { createApp } from "../http/app.ts";
 import { nodeServerRawTarget } from "../http/raw-target.ts";
 import { type Listening, listen, PortInUseError } from "../http/server.ts";
@@ -17,8 +19,17 @@ import { createCliOpener } from "./opener.ts";
 const out = (s: string) => process.stdout.write(`${s}\n`);
 const err = (s: string) => process.stderr.write(`${s}\n`);
 
+export type ServeDeps = {
+  /** Open the store instead of the fs store under `config.root`; `location` names it in the log. */
+  openStore?: (config: ServeConfig) => { store: BlobStore & PointerStore; location: string };
+};
+
 /** Resolves with the exit code once the server has stopped (or failed to start). */
-export async function runServe(args: readonly string[], env: Env): Promise<number> {
+export async function runServe(
+  args: readonly string[],
+  env: Env,
+  deps: ServeDeps = {},
+): Promise<number> {
   const resolved = resolveServeConfig(args, env);
   if (!resolved.ok) {
     if (resolved.usage) {
@@ -35,15 +46,20 @@ export async function runServe(args: readonly string[], env: Env): Promise<numbe
   const { config, warnings } = resolved;
   for (const warning of warnings) err(warning);
 
-  await mkdir(config.root, { recursive: true });
-  const acquired = acquireLock(config.root, { port: config.port });
-  if (!acquired.ok) {
-    err(acquired.message);
-    return 1;
+  const opened = deps.openStore?.(config);
+  let release = () => {};
+  if (!opened) {
+    await mkdir(config.root, { recursive: true });
+    const acquired = acquireLock(config.root, { port: config.port });
+    if (!acquired.ok) {
+      err(acquired.message);
+      return 1;
+    }
+    const { lock } = acquired;
+    release = lock.release;
+    process.on("exit", lock.release);
+    if (lock.tookOver) err(`artifact: took over stale lock from PID ${lock.tookOver.pid}`);
   }
-  const { lock } = acquired;
-  process.on("exit", lock.release);
-  if (lock.tookOver) err(`artifact: took over stale lock from PID ${lock.tookOver.pid}`);
 
   // Handle signals before listening, so one sent during startup still releases the lock.
   let stopRequested = false;
@@ -59,7 +75,8 @@ export async function runServe(args: readonly string[], env: Env): Promise<numbe
   process.on("SIGINT", onSignal);
   process.on("SIGTERM", onSignal);
 
-  const store = createFsStore({ root: config.root });
+  const store = opened?.store ?? createFsStore({ root: config.root });
+  const location = opened?.location ?? config.root;
   const notifier = createMemoryNotifier();
   const service = new ArtifactService({
     blobs: store,
@@ -68,7 +85,8 @@ export async function runServe(args: readonly string[], env: Env): Promise<numbe
     clock: systemClock,
     ids: createUlidIdGen(),
   });
-  // Under the lock, before listening: nothing else can be publishing to this root (0047).
+  // Under the lock, before listening: nothing else can be publishing to this root (0047). On an
+  // injected store the sweep's age guard alone keeps in-flight publishes safe.
   try {
     const swept = await service.sweepOrphans();
     if (swept.versions || swept.folders) {
@@ -99,7 +117,7 @@ export async function runServe(args: readonly string[], env: Env): Promise<numbe
   } catch (error) {
     process.off("SIGINT", onSignal);
     process.off("SIGTERM", onSignal);
-    lock.release();
+    release();
     err(
       error instanceof PortInUseError
         ? error.message
@@ -109,12 +127,12 @@ export async function runServe(args: readonly string[], env: Env): Promise<numbe
   }
   if (!stopRequested) {
     out(
-      `artifact: serving ${config.root} at http://localhost:${config.port}/ (isolation: ${config.isolation})`,
+      `artifact: serving ${location} at http://localhost:${config.port}/ (isolation: ${config.isolation})`,
     );
   }
 
   await signalled;
   await listening.close();
-  lock.release();
+  release();
   return 0;
 }
