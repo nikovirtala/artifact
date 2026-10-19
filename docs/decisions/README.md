@@ -64,3 +64,4 @@ One short file per decision, numbered in order. Status is **Accepted** (in effec
 | [0058](0058-reload-client-config.md) | Reload client config prefix; the local prefix is line 1 of the client file | Accepted |
 | [0059](0059-aws-layout.md) | S3 adapter in `src/runtime/`, dev tooling in a private `aws/` workspace | Accepted |
 | [0060](0060-s3-stores.md) | `S3BlobStore` / `S3PointerStore`: conditional writes, error mapping, key prefix | Accepted |
+| [0061](0061-list-cost-and-index-threshold.md) | `list` on S3: one LIST page per 1,000 artifacts plus one `GET meta.json` per artifact; index threshold | Accepted |
