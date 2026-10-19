@@ -24,6 +24,7 @@ import { GALLERY_CSP, plainText, securityHeaders } from "./headers.ts";
 import { type HostPolicy, LocalHostPolicy } from "./host-policy.ts";
 import { reloadClient } from "./reload.ts";
 import { type ArtifactEvents, eventStream } from "./sse.ts";
+import { localTokenVerifier, type TokenVerifier } from "./token.ts";
 import type { Isolation } from "./urls.ts";
 import { notFound, redirect, serveArtifact } from "./viewing.ts";
 
@@ -50,6 +51,8 @@ export type AppDeps = {
   opener?: Opener;
   /** Accepted hosts and the URLs handed out; default `LocalHostPolicy(config)` (0053). */
   hosts?: HostPolicy;
+  /** Bearer check on /api and /mcp; default `localTokenVerifier(config.token)` (0054). */
+  verifyToken?: TokenVerifier;
 };
 
 const MCP_PATH = "/mcp";
@@ -59,6 +62,7 @@ export function createApp(deps: AppDeps): Hono<AppEnv> {
   const { service, events, config } = deps;
   const { csp } = config;
   const hosts = deps.hosts ?? new LocalHostPolicy(config);
+  const verifyToken = deps.verifyToken ?? localTokenVerifier(config.token);
   const app = new Hono<AppEnv>();
 
   app.onError((error, c) => {
@@ -102,11 +106,11 @@ export function createApp(deps: AppDeps): Hono<AppEnv> {
     );
   });
 
-  app.route("/api", createApi({ ...deps, hosts }));
+  app.route("/api", createApi({ ...deps, hosts, verifyToken }));
 
   // MCP behind the same browser and token guards as /api (docs/decisions/0027, 0037).
   const mcp = createMcpHandler({ service, config, opener: deps.opener, hosts });
-  app.use(MCP_PATH, browserGuard(), tokenGuard(config.token));
+  app.use(MCP_PATH, browserGuard(), tokenGuard(verifyToken));
   app.all(MCP_PATH, (c) => mcp(c.req.raw));
 
   app.get("/", async (c) => {
