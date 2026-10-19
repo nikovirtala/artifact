@@ -11,7 +11,7 @@ import {
   PublishBodySchema,
   RollbackBodySchema,
 } from "../schemas.ts";
-import type { AppDeps } from "./app.ts";
+import type { ControlAppDeps } from "./control-app.ts";
 import { badRequest, httpError, jsonError } from "./errors.ts";
 import { type AppEnv, browserGuard, parseIfMatch, tokenGuard } from "./guards.ts";
 import { API_FILE_CSP } from "./headers.ts";
@@ -72,7 +72,7 @@ function filePath(c: Context<AppEnv>): string {
   return segments.map((s) => decodeURIComponent(s)).join("/");
 }
 
-export function createApi(deps: AppDeps): Hono<AppEnv> {
+export function createApi(deps: ControlAppDeps): Hono<AppEnv> {
   const { service, config, opener } = deps;
   const { maxPublishBytes, maxListLimit } = service.limits;
   const hosts = deps.hosts ?? new LocalHostPolicy(config);

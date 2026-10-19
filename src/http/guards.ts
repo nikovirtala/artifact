@@ -2,12 +2,13 @@
 // then browser requests (docs/decisions/0037) and bearer token on /api and /mcp.
 import type { HttpBindings } from "@hono/node-server";
 import type { Context, MiddlewareHandler } from "hono";
-import { badRequest, httpError, jsonError } from "./errors.ts";
+import { badRequest, httpError, isApiPath, jsonError } from "./errors.ts";
 import { plainText } from "./headers.ts";
 import { type AcceptedHost, type HostPolicy, LocalHostPolicy } from "./host-policy.ts";
 import { nodeServerRawTarget, type RawTargetHook } from "./raw-target.ts";
 import { localTokenVerifier, type TokenVerifier } from "./token.ts";
 
+export { isApiPath } from "./errors.ts";
 export type { AcceptedHost, HostKind } from "./host-policy.ts";
 
 export type AppEnv = {
@@ -58,10 +59,6 @@ export function rawTarget(c: Context<AppEnv>, hook: RawTargetHook = nodeServerRa
   if (raw !== undefined) return raw;
   const url = new URL(c.req.url);
   return url.pathname + url.search;
-}
-
-export function isApiPath(path: string): boolean {
-  return path === "/api" || path.startsWith("/api/");
 }
 
 /** Refuse hosts the policy rejects (a port number means the local policy on that port). */
