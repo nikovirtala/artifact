@@ -1,0 +1,4 @@
+# The private aws/ package holds dev tooling only (docs/decisions/0059); examples/* arrives in M9.
+packages:
+  - aws
+  - examples/*

@@ -1,0 +1,20 @@
+{
+  "name": "aws",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Dev tooling for the AWS deployment: the S3 dev harness and the test resources stack",
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "node --test \"test/**/*.test.ts\"",
+    "test:e2e": "node scripts/e2e.ts",
+    "test:e2e:fake": "node scripts/e2e.ts --fake",
+    "check": "pnpm typecheck && pnpm test && pnpm test:e2e:fake",
+    "dev:serve": "node bin/artifact-s3.ts serve"
+  },
+  "devDependencies": {
+    "@aws-sdk/client-s3": "3.1152.0",
+    "@types/node": "^24.19.2",
+    "typescript": "7.0.2"
+  }
+}
