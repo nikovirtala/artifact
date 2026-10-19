@@ -2,7 +2,7 @@
 // installed bin (docs/decisions/0048). Not part of `pnpm check`: it builds and needs the registry.
 // KEEP_PACK_TEST=1 keeps the temp directory for inspection.
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -32,10 +32,28 @@ try {
   ];
   const missing = required.filter((path) => !entries.includes(path));
   const forbidden = entries.filter(
-    (e) => e.startsWith("package/src/") || e.startsWith("package/test/") || e.endsWith(".d.ts"),
+    (e) =>
+      e.startsWith("package/src/") ||
+      e.startsWith("package/test/") ||
+      e.startsWith("package/dist/runtime/") ||
+      e.endsWith(".d.ts"),
   );
   if (missing.length > 0) throw new Error(`pack-test: tarball lacks ${missing.join(", ")}`);
   if (forbidden.length > 0) throw new Error(`pack-test: tarball ships ${forbidden.join(", ")}`);
+
+  // The AWS code stays out of the package: v1 runtime dependencies only, no peers yet (0059).
+  const packed = JSON.parse(run("tar", ["-xzOf", tarball, "package/package.json"], tmp)) as {
+    dependencies?: Record<string, string>;
+    peerDependencies?: Record<string, string>;
+  };
+  const dependencies = Object.keys(packed.dependencies ?? {}).sort();
+  const v1Dependencies = ["@hono/node-server", "@modelcontextprotocol/sdk", "hono", "zod"];
+  if (dependencies.join() !== v1Dependencies.join()) {
+    throw new Error(`pack-test: dependencies are ${dependencies.join(", ")}`);
+  }
+  if (packed.peerDependencies !== undefined) {
+    throw new Error("pack-test: the package declares peerDependencies");
+  }
 
   const app = join(tmp, "app");
   mkdirSync(app);
@@ -44,6 +62,14 @@ try {
     cwd: app,
     stdio: "inherit",
   });
+
+  const awsPackages = ["@aws-sdk", "aws-cdk-lib", "constructs"].filter((name) =>
+    existsSync(join(app, "node_modules", name)),
+  );
+  if (awsPackages.length > 0) {
+    throw new Error(`pack-test: installing the tarball pulls in ${awsPackages.join(", ")}`);
+  }
+  console.log("pack-test: v1 dependencies only; no dist/runtime, @aws-sdk or aws-cdk-lib");
 
   const dist = join(app, "node_modules", "@nikovirtala", "artifact", "dist");
   const tsImport = /(?:from\s*|import\s*\(\s*)["'][^"']+\.ts["']/;

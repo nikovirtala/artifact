@@ -8,5 +8,6 @@
     "declaration": false,
     "rewriteRelativeImportExtensions": true
   },
-  "include": ["src"]
+  "include": ["src"],
+  "exclude": ["src/runtime"]
 }

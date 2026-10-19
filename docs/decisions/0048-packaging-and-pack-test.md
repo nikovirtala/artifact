@@ -18,3 +18,5 @@ Node does not strip types inside `node_modules`, so the tarball must work as bui
 Anything in the package that still points at `.ts`, or a missing asset, fails `test:pack`. The owner publishes with `npm publish` (`prepublishOnly` still runs check + build).
 
 Update (release): `test:pack` also runs in CI on every pull request and push to `main`, and in the publish workflow before a version is published. Releases go through that workflow, not a manual `npm publish` (0049).
+
+Update (M8): `src/runtime/` is excluded from the build, and `test:pack` also checks that no `dist/runtime/` ships, that the packed `dependencies` are exactly the v1 four with no `peerDependencies`, and that installing the tarball brings in no `@aws-sdk/*`, `aws-cdk-lib` or `constructs` (0059).
