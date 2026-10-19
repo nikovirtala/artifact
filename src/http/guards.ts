@@ -1,11 +1,11 @@
 // Request guards (docs/decisions/0027), applied in order: Host and traversal on every route,
 // then browser requests (docs/decisions/0037) and bearer token on /api and /mcp.
-import { createHash, timingSafeEqual } from "node:crypto";
 import type { HttpBindings } from "@hono/node-server";
 import type { Context, MiddlewareHandler } from "hono";
 import { badRequest, httpError, jsonError } from "./errors.ts";
 import { plainText } from "./headers.ts";
 import { type AcceptedHost, type HostPolicy, LocalHostPolicy } from "./host-policy.ts";
+import { localTokenVerifier, type TokenVerifier } from "./token.ts";
 
 export type { AcceptedHost, HostKind } from "./host-policy.ts";
 
@@ -114,15 +114,19 @@ export function browserGuard(): MiddlewareHandler<AppEnv> {
   };
 }
 
-const digest = (s: string) => createHash("sha256").update(s).digest();
-
-/** With a token configured, require `Authorization: Bearer <token>` (constant-time compare). */
-export function tokenGuard(token: string | undefined): MiddlewareHandler<AppEnv> {
-  const expected = token === undefined ? undefined : digest(token);
+/**
+ * With a verifier (or a token, checked by `localTokenVerifier`), require
+ * `Authorization: Bearer <token>` that it accepts; the verifier never sees a missing or
+ * malformed header (docs/decisions/0054).
+ */
+export function tokenGuard(
+  verifier: TokenVerifier | string | undefined,
+): MiddlewareHandler<AppEnv> {
+  const verify = typeof verifier === "string" ? localTokenVerifier(verifier) : verifier;
   return async (c, next) => {
-    if (expected === undefined) return next();
+    if (verify === undefined) return next();
     const given = /^Bearer[ \t]+(\S+)[ \t]*$/i.exec(c.req.header("Authorization") ?? "")?.[1];
-    if (given === undefined || !timingSafeEqual(digest(given), expected)) {
+    if (given === undefined || !(await verify(given))) {
       return jsonError(httpError("unauthorized", "missing or invalid bearer token"), {
         "WWW-Authenticate": "Bearer",
       });

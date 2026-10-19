@@ -104,7 +104,7 @@ export function createApi(deps: AppDeps): Hono<AppEnv> {
 
   const api = new Hono<AppEnv>();
   api.use(browserGuard());
-  api.use(tokenGuard(config.token));
+  api.use(tokenGuard(deps.verifyToken ?? config.token));
   api.use(async (c, next) => {
     await next();
     c.res.headers.set("X-Content-Type-Options", "nosniff");
