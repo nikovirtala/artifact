@@ -195,6 +195,18 @@ importers:
         specifier: 7.0.2
         version: 7.0.2
 
+  aws:
+    devDependencies:
+      '@aws-sdk/client-s3':
+        specifier: 3.1152.0
+        version: 3.1152.0
+      '@types/node':
+        specifier: ^24.19.2
+        version: 24.19.2
+      typescript:
+        specifier: 7.0.2
+        version: 7.0.2
+
 packages:
 
   '@aws-sdk/checksums@3.1001.3':
