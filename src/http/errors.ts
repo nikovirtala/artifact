@@ -1,5 +1,8 @@
 // JSON error responses for /api: `{"error": code, "message", ...extra}` (docs/decisions/0023).
+import type { ErrorHandler } from "hono";
 import type { ArtifactError } from "../core/errors.ts";
+import type { AppEnv } from "./guards.ts";
+import { plainText } from "./headers.ts";
 
 export type HttpErrorCode =
   | ArtifactError["code"]
@@ -51,4 +54,23 @@ export function jsonError(error: HttpError, headers: Record<string, string> = {}
 
 export function badRequest(message: string, extra?: Record<string, unknown>): Response {
   return jsonError(httpError("bad_request", message, extra));
+}
+
+export const MCP_PATH = "/mcp";
+
+export function isApiPath(path: string): boolean {
+  return path === "/api" || path.startsWith("/api/");
+}
+
+/**
+ * The 500 for an uncaught error, shared by every app (docs/decisions/0056): JSON on /api and
+ * /mcp, plain text elsewhere.
+ */
+export function appErrorHandler(csp?: string): ErrorHandler<AppEnv> {
+  return (error, c) => {
+    console.error(error);
+    return isApiPath(c.req.path) || c.req.path === MCP_PATH
+      ? jsonError(httpError("internal", "internal server error"))
+      : plainText(500, "internal server error\n", csp);
+  };
 }
