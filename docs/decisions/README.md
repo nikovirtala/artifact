@@ -63,3 +63,4 @@ One short file per decision, numbered in order. Status is **Accepted** (in effec
 | [0057](0057-version-route.md) | `GET /__artifact/version` on every artifact origin | Accepted |
 | [0058](0058-reload-client-config.md) | Reload client config prefix; the local prefix is line 1 of the client file | Accepted |
 | [0059](0059-aws-layout.md) | S3 adapter in `src/runtime/`, dev tooling in a private `aws/` workspace | Accepted |
+| [0060](0060-s3-stores.md) | `S3BlobStore` / `S3PointerStore`: conditional writes, error mapping, key prefix | Accepted |
