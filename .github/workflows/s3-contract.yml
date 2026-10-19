@@ -1,0 +1,38 @@
+name: S3 contract
+
+# On demand only: the real-bucket tests need the deployed test resources (docs/decisions/0063).
+# Repository variables ARTIFACT_TEST_BUCKET and ARTIFACT_TEST_ROLE_ARN name them; the role trusts
+# only jobs in the s3-contract environment.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: s3-contract
+  cancel-in-progress: false
+
+jobs:
+  s3-contract:
+    runs-on: ubuntu-latest
+    environment: s3-contract
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # pnpm comes from "packageManager" in package.json; Node is the major pinned in mise.toml.
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24"
+          cache: pnpm
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.ARTIFACT_TEST_ROLE_ARN }}
+          aws-region: eu-north-1
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test:s3
+        env:
+          ARTIFACT_TEST_BUCKET: ${{ vars.ARTIFACT_TEST_BUCKET }}
