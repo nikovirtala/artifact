@@ -19,7 +19,8 @@ import type { ArtifactService } from "../core/artifact-service.ts";
 import { fail, invalidInput, type Result } from "../core/errors.ts";
 import { ENTRY_PAGE } from "../core/paths.ts";
 import { errorBody, httpError } from "../http/errors.ts";
-import { artifactUrl, type Isolation } from "../http/urls.ts";
+import { type HostPolicy, LocalHostPolicy } from "../http/host-policy.ts";
+import type { Isolation } from "../http/urls.ts";
 import {
   bodyCapFor,
   decodeFiles,
@@ -43,6 +44,8 @@ export type McpDeps = {
   config: McpConfig;
   /** Opens newly created artifacts in the browser; none means never (docs/decisions/0040). */
   opener?: Opener;
+  /** The URLs handed out; default `LocalHostPolicy(config)` (docs/decisions/0053). */
+  hosts?: HostPolicy;
 };
 
 const { version: PACKAGE_VERSION } = createRequire(import.meta.url)("../../package.json") as {
@@ -80,7 +83,8 @@ function tools(deps: McpDeps): ToolSpec<z.ZodType>[] {
     RollbackToolInputSchema,
     DeleteToolInputSchema,
   } = toolInputSchemas(service.limits);
-  const urlFor = (id: string) => artifactUrl(id, config);
+  const hosts = deps.hosts ?? new LocalHostPolicy(config);
+  const urlFor = (id: string) => hosts.artifactUrl(id);
   const entryFromPath = async (
     path: string,
     files: Readonly<Record<string, unknown>>,
