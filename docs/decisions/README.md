@@ -66,3 +66,4 @@ One short file per decision, numbered in order. Status is **Accepted** (in effec
 | [0060](0060-s3-stores.md) | `S3BlobStore` / `S3PointerStore`: conditional writes, error mapping, key prefix | Accepted |
 | [0061](0061-list-cost-and-index-threshold.md) | `list` on S3: one LIST page per 1,000 artifacts plus one `GET meta.json` per artifact; index threshold | Accepted |
 | [0062](0062-s3-dev-harness.md) | Dev harness: `pnpm --filter aws dev:serve` runs `artifact serve` on S3 stores | Accepted |
+| [0063](0063-test-resources-stack.md) | Test resources stack: contract bucket + GitHub OIDC role | Accepted |
