@@ -60,3 +60,4 @@ One short file per decision, numbered in order. Status is **Accepted** (in effec
 | [0054](0054-token-verifier.md) | `TokenVerifier` port for bearer tokens | Accepted |
 | [0055](0055-raw-target-hook.md) | Raw request target through a server-adapter hook | Accepted |
 | [0056](0056-viewing-and-control-apps.md) | Viewing and control apps; local composition order and shared error handler | Accepted |
+| [0057](0057-version-route.md) | `GET /__artifact/version` on every artifact origin | Accepted |

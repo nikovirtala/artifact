@@ -1,5 +1,5 @@
 // The viewing app (docs/decisions/0056): guards, then dispatch by Host (docs/decisions/0024, 0027).
-//   any host        → platform routes under /__artifact/ (live reload, docs/decisions/0028)
+//   any host        → platform routes under /__artifact/ (live reload, docs/decisions/0028, 0057)
 //   <id>.localhost  → subdomain viewing only
 //   localhost etc.  → the gallery at /, and path-mode viewing under /a/<id>/
 import { Hono } from "hono";
@@ -57,6 +57,24 @@ export function createViewingApp(deps: ViewingAppDeps): Hono<AppEnv> {
     if (!isArtifactId(id) || (host.kind === "artifact" && host.id !== id)) return notFound(csp);
     if (!(await service.read(id)).ok) return notFound(csp);
     return eventStream(c, { service, events, heartbeatMs: config.heartbeatMs }, id);
+  });
+  // The current version (docs/decisions/0057). On <id>.localhost that id; on the main host,
+  // the path-mode artifact origin, `?id=` names it, as for the events.
+  app.get("/__artifact/version", async (c) => {
+    const host = c.get("host");
+    const query = c.req.query("id")?.toLowerCase();
+    if (host.kind === "artifact" && query !== undefined && query !== host.id) return notFound(csp);
+    const id = host.kind === "artifact" ? host.id : (query ?? "");
+    if (!isArtifactId(id)) return notFound(csp);
+    const details = await service.read(id);
+    if (!details.ok) return notFound(csp);
+    return new Response(JSON.stringify({ version: details.value.currentVersion }), {
+      headers: {
+        ...securityHeaders(csp),
+        "Content-Type": "application/json",
+        "Cache-Control": "no-store",
+      },
+    });
   });
 
   // Subdomain mode: every path on <id>.localhost belongs to the artifact.
