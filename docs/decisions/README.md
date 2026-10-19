@@ -54,3 +54,4 @@ One short file per decision, numbered in order. Status is **Accepted** (in effec
 | [0048](0048-packaging-and-pack-test.md) | Packaging and the `test:pack` tarball test | Accepted |
 | [0049](0049-release-via-trusted-publishing.md) | Release on merge via GitHub Actions trusted publishing | Accepted |
 | [0050](0050-v2-import-boundaries.md) | Import boundaries for `src/cdk/`, `src/runtime/`, `aws-cdk-lib` and `@aws-sdk/*` | Accepted |
+| [0051](0051-injectable-limits.md) | Injectable limits owned by the service; body cap 1.5× with an override | Accepted |
