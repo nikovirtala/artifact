@@ -3,34 +3,22 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 import type { HttpBindings } from "@hono/node-server";
 import type { Context, MiddlewareHandler } from "hono";
-import { isArtifactId } from "../core/paths.ts";
 import { badRequest, httpError, jsonError } from "./errors.ts";
 import { plainText } from "./headers.ts";
+import { type AcceptedHost, type HostPolicy, LocalHostPolicy } from "./host-policy.ts";
 
-export type HostKind = { kind: "main" } | { kind: "artifact"; id: string };
+export type { AcceptedHost, HostKind } from "./host-policy.ts";
 
 export type AppEnv = {
   /** Set by `@hono/node-server`; absent for in-process `app.request()` unless a test passes it. */
   Bindings: Partial<HttpBindings>;
-  Variables: { host: HostKind };
+  Variables: { host: AcceptedHost };
 };
 
-const MAIN_HOSTS: ReadonlySet<string> = new Set(["localhost", "127.0.0.1", "[::1]"]);
-const ARTIFACT_HOST_SUFFIX = ".localhost";
-
-/** Classify a URL `host` (`name[:port]`); `undefined` means the request must be refused. */
-export function classifyHost(host: string, port: number): HostKind | undefined {
-  const lower = host.toLowerCase();
-  // URL parsing drops the default port, so port 80 arrives without one.
-  const suffix = port === 80 ? "" : `:${port}`;
-  if (!lower.endsWith(suffix)) return undefined;
-  const name = lower.slice(0, lower.length - suffix.length);
-  if (MAIN_HOSTS.has(name)) return { kind: "main" };
-  if (name.endsWith(ARTIFACT_HOST_SUFFIX)) {
-    const id = name.slice(0, -ARTIFACT_HOST_SUFFIX.length);
-    if (isArtifactId(id)) return { kind: "artifact", id };
-  }
-  return undefined;
+/** Classify a URL `host` (`name[:port]`) by the local rules; `undefined` means refuse it. */
+export function classifyHost(host: string, port: number): AcceptedHost | undefined {
+  const kind = new LocalHostPolicy({ port, isolation: "subdomain" }).classify(host);
+  return kind.kind === "reject" ? undefined : kind;
 }
 
 /**
@@ -75,10 +63,15 @@ export function isApiPath(path: string): boolean {
   return path === "/api" || path.startsWith("/api/");
 }
 
-export function hostGuard(port: number, csp?: string): MiddlewareHandler<AppEnv> {
+/** Refuse hosts the policy rejects (a port number means the local policy on that port). */
+export function hostGuard(policy: HostPolicy | number, csp?: string): MiddlewareHandler<AppEnv> {
+  const hosts =
+    typeof policy === "number"
+      ? new LocalHostPolicy({ port: policy, isolation: "subdomain" })
+      : policy;
   return async (c, next) => {
-    const host = classifyHost(new URL(c.req.url).host, port);
-    if (!host) return plainText(403, "forbidden: unexpected Host header\n", csp);
+    const host = hosts.classify(new URL(c.req.url).host);
+    if (host.kind === "reject") return plainText(403, "forbidden: unexpected Host header\n", csp);
     c.set("host", host);
     await next();
   };

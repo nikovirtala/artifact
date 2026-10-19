@@ -56,3 +56,4 @@ One short file per decision, numbered in order. Status is **Accepted** (in effec
 | [0050](0050-v2-import-boundaries.md) | Import boundaries for `src/cdk/`, `src/runtime/`, `aws-cdk-lib` and `@aws-sdk/*` | Accepted |
 | [0051](0051-injectable-limits.md) | Injectable limits owned by the service; body cap 1.5× with an override | Accepted |
 | [0052](0052-version-pruning.md) | `pruneVersions`: keepLast AND olderThan; current and latest kept; pointer CAS first | Accepted |
+| [0053](0053-host-policy.md) | `HostPolicy` port: `LocalHostPolicy` and `DomainHostPolicy` (port and label rules) | Accepted |

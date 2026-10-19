@@ -21,9 +21,10 @@ import {
   traversalGuard,
 } from "./guards.ts";
 import { GALLERY_CSP, plainText, securityHeaders } from "./headers.ts";
+import { type HostPolicy, LocalHostPolicy } from "./host-policy.ts";
 import { reloadClient } from "./reload.ts";
 import { type ArtifactEvents, eventStream } from "./sse.ts";
-import { artifactUrl, type Isolation } from "./urls.ts";
+import type { Isolation } from "./urls.ts";
 import { notFound, redirect, serveArtifact } from "./viewing.ts";
 
 export type AppConfig = {
@@ -47,6 +48,8 @@ export type AppDeps = {
   config: AppConfig;
   /** Opens newly created artifacts in the browser; none means never (docs/decisions/0040). */
   opener?: Opener;
+  /** Accepted hosts and the URLs handed out; default `LocalHostPolicy(config)` (0053). */
+  hosts?: HostPolicy;
 };
 
 const MCP_PATH = "/mcp";
@@ -55,6 +58,7 @@ const VIEW_METHODS: ReadonlySet<string> = new Set(["GET", "HEAD"]);
 export function createApp(deps: AppDeps): Hono<AppEnv> {
   const { service, events, config } = deps;
   const { csp } = config;
+  const hosts = deps.hosts ?? new LocalHostPolicy(config);
   const app = new Hono<AppEnv>();
 
   app.onError((error, c) => {
@@ -65,7 +69,7 @@ export function createApp(deps: AppDeps): Hono<AppEnv> {
   });
   app.notFound(() => notFound(csp));
 
-  app.use(hostGuard(config.port, csp));
+  app.use(hostGuard(hosts, csp));
   app.use(traversalGuard(csp));
 
   // Platform routes, on every host. On <id>.localhost only that artifact's events are served.
@@ -98,10 +102,10 @@ export function createApp(deps: AppDeps): Hono<AppEnv> {
     );
   });
 
-  app.route("/api", createApi(deps));
+  app.route("/api", createApi({ ...deps, hosts }));
 
   // MCP behind the same browser and token guards as /api (docs/decisions/0027, 0037).
-  const mcp = createMcpHandler({ service, config, opener: deps.opener });
+  const mcp = createMcpHandler({ service, config, opener: deps.opener, hosts });
   app.use(MCP_PATH, browserGuard(), tokenGuard(config.token));
   app.all(MCP_PATH, (c) => mcp(c.req.raw));
 
@@ -112,7 +116,7 @@ export function createApp(deps: AppDeps): Hono<AppEnv> {
       return plainText(400, "bad request: invalid project\n", GALLERY_CSP);
     const list = await service.list({ project: project?.value });
     if (!list.ok) throw new Error(list.error.message);
-    const html = renderGallery(list.value, (id) => artifactUrl(id, config), project?.value);
+    const html = renderGallery(list.value, (id) => hosts.artifactUrl(id), project?.value);
     return new Response(html, {
       headers: {
         ...securityHeaders(GALLERY_CSP),

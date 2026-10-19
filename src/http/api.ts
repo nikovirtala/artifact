@@ -15,7 +15,7 @@ import type { AppDeps } from "./app.ts";
 import { badRequest, httpError, jsonError } from "./errors.ts";
 import { type AppEnv, browserGuard, parseIfMatch, tokenGuard } from "./guards.ts";
 import { API_FILE_CSP } from "./headers.ts";
-import { artifactUrl } from "./urls.ts";
+import { LocalHostPolicy } from "./host-policy.ts";
 
 const POSITIVE_INTEGER = /^[1-9][0-9]*$/;
 
@@ -75,7 +75,8 @@ function filePath(c: Context<AppEnv>): string {
 export function createApi(deps: AppDeps): Hono<AppEnv> {
   const { service, config, opener } = deps;
   const { maxPublishBytes, maxListLimit } = service.limits;
-  const urlFor = (id: string) => artifactUrl(id, config);
+  const hosts = deps.hosts ?? new LocalHostPolicy(config);
+  const urlFor = (id: string) => hosts.artifactUrl(id);
   /** `open`: a publish that may open the browser (`true` only on create); rollback omits it. */
   const published = (
     c: Context<AppEnv>,
