@@ -21,15 +21,11 @@ import { ENTRY_PAGE } from "../core/paths.ts";
 import { errorBody, httpError } from "../http/errors.ts";
 import { artifactUrl, type Isolation } from "../http/urls.ts";
 import {
-  DEFAULT_LIST_LIMIT,
-  DeleteToolInputSchema,
+  bodyCapFor,
   decodeFiles,
+  defaultListLimit,
   encodeFileValue,
-  ListToolInputSchema,
-  MAX_BODY_BYTES,
-  PublishToolInputSchema,
-  ReadToolInputSchema,
-  RollbackToolInputSchema,
+  toolInputSchemas,
 } from "../schemas.ts";
 import { readEntryFile } from "./file-path.ts";
 
@@ -38,6 +34,8 @@ export type McpConfig = {
   isolation: Isolation;
   /** Accept `artifact_publish` `file_path` (default true; a remote deployment turns it off). */
   allowFilePath?: boolean;
+  /** Request body cap; default `bodyCapFor(service.limits)` (docs/decisions/0051). */
+  maxBodyBytes?: number;
 };
 
 export type McpDeps = {
@@ -75,6 +73,13 @@ const tool = <S extends z.ZodType>(spec: ToolSpec<S>) => spec as unknown as Tool
 
 function tools(deps: McpDeps): ToolSpec<z.ZodType>[] {
   const { service, config, opener } = deps;
+  const {
+    PublishToolInputSchema,
+    ListToolInputSchema,
+    ReadToolInputSchema,
+    RollbackToolInputSchema,
+    DeleteToolInputSchema,
+  } = toolInputSchemas(service.limits);
   const urlFor = (id: string) => artifactUrl(id, config);
   const entryFromPath = async (
     path: string,
@@ -93,7 +98,7 @@ function tools(deps: McpDeps): ToolSpec<z.ZodType>[] {
         invalidInput("file_path", "file_path and files both give index.html; pass only one"),
       );
     }
-    return readEntryFile(path);
+    return readEntryFile(path, service.limits.maxFileBytes);
   };
   const published = (result: Result<{ id: string; version: number; project?: string }>) =>
     result.ok
@@ -152,7 +157,11 @@ function tools(deps: McpDeps): ToolSpec<z.ZodType>[] {
       input: ListToolInputSchema,
       annotations: { title: "List artifacts", readOnlyHint: true, openWorldHint: false },
       run: async ({ limit, project, all }) => {
-        const list = await service.list({ limit: limit ?? DEFAULT_LIST_LIMIT, project, all });
+        const list = await service.list({
+          limit: limit ?? defaultListLimit(service.limits),
+          project,
+          all,
+        });
         if (!list.ok) return list;
         return {
           ok: true,
@@ -286,13 +295,14 @@ const methodNotAllowed = () =>
  */
 export function createMcpHandler(deps: McpDeps): (request: Request) => Promise<Response> {
   const tools = catalog(deps);
+  const maxRequestBodySize = deps.config.maxBodyBytes ?? bodyCapFor(deps.service.limits);
   return async (request) => {
     if (request.method !== "POST") return methodNotAllowed();
     const server = createServer(tools);
     const transport = new WebStandardStreamableHTTPServerTransport({
       sessionIdGenerator: undefined,
       enableJsonResponse: true,
-      maxRequestBodySize: MAX_BODY_BYTES,
+      maxRequestBodySize,
     });
     await server.connect(transport);
     try {

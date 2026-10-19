@@ -3,12 +3,11 @@ import type { Context } from "hono";
 import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import type { z } from "zod";
-import { LIMITS } from "../core/artifact-service.ts";
 import type { ArtifactError, Result } from "../core/errors.ts";
 import {
-  DEFAULT_LIST_LIMIT,
+  bodyCapFor,
   decodeFiles,
-  MAX_BODY_BYTES,
+  defaultListLimit,
   PublishBodySchema,
   RollbackBodySchema,
 } from "../schemas.ts";
@@ -75,6 +74,7 @@ function filePath(c: Context<AppEnv>): string {
 
 export function createApi(deps: AppDeps): Hono<AppEnv> {
   const { service, config, opener } = deps;
+  const { maxPublishBytes, maxListLimit } = service.limits;
   const urlFor = (id: string) => artifactUrl(id, config);
   /** `open`: a publish that may open the browser (`true` only on create); rollback omits it. */
   const published = (
@@ -110,26 +110,26 @@ export function createApi(deps: AppDeps): Hono<AppEnv> {
   });
   api.use(
     bodyLimit({
-      maxSize: MAX_BODY_BYTES,
+      maxSize: config.maxBodyBytes ?? bodyCapFor(service.limits),
       onError: () =>
         jsonError(
-          httpError("too_large", `publish exceeds the limit of ${LIMITS.maxPublishBytes} bytes`, {
+          httpError("too_large", `publish exceeds the limit of ${maxPublishBytes} bytes`, {
             subject: "publish",
-            limit: LIMITS.maxPublishBytes,
+            limit: maxPublishBytes,
           }),
         ),
     }),
   );
 
   api.get("/artifacts", async (c) => {
-    const limit = queryInt(c, "limit", LIMITS.maxListLimit);
+    const limit = queryInt(c, "limit", maxListLimit);
     if (!limit.ok) return limit.response;
     const projects = c.req.queries("project");
     if (projects !== undefined && projects.length !== 1) {
       return badRequest("query parameter project must be given at most once");
     }
     const list = await service.list({
-      limit: limit.value ?? DEFAULT_LIST_LIMIT,
+      limit: limit.value ?? defaultListLimit(service.limits),
       project: projects?.[0],
     });
     if (!list.ok) return coreError(list.error);

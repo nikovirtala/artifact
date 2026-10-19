@@ -55,6 +55,22 @@ export const LIMITS = {
   maxListLimit: 500,
 } as const;
 
+/** Size and count limits of one deployment (docs/decisions/0051); the defaults are `LIMITS`. */
+export type Limits = { readonly [K in keyof typeof LIMITS]: number };
+
+/** `LIMITS` with the given overrides; throws unless every value is a positive safe integer. */
+function resolveLimits(overrides: Partial<Limits> = {}): Limits {
+  const limits = { ...LIMITS } as Record<keyof Limits, number>;
+  for (const key of Object.keys(LIMITS) as (keyof Limits)[]) {
+    const value = overrides[key] ?? LIMITS[key];
+    if (!Number.isSafeInteger(value) || value < 1) {
+      throw new RangeError(`limit ${key} must be a positive integer, got ${value}`);
+    }
+    limits[key] = value;
+  }
+  return Object.freeze(limits);
+}
+
 const DEFAULT_MAX_ATTEMPTS = 20;
 const WRITE_CONCURRENCY = 16;
 
@@ -140,6 +156,8 @@ export type ArtifactServiceDeps = {
   ids: IdGen;
   /** Storage round trips (version claims + pointer writes) before giving up with a conflict. */
   maxAttempts?: number;
+  /** Overrides of `LIMITS` (docs/decisions/0051); the API, MCP and schemas read `limits`. */
+  limits?: Partial<Limits>;
 };
 
 type PreparedFile = ManifestFile & { body: Uint8Array };
@@ -190,6 +208,8 @@ function artifactNotFound(id: string) {
 }
 
 export class ArtifactService {
+  /** The limits in force: `LIMITS` merged with `deps.limits`. */
+  readonly limits: Limits;
   readonly #blobs: BlobStore;
   readonly #pointers: PointerStore;
   readonly #notifier: Notifier;
@@ -204,12 +224,13 @@ export class ArtifactService {
     this.#clock = deps.clock;
     this.#ids = deps.ids;
     this.#maxAttempts = deps.maxAttempts ?? DEFAULT_MAX_ATTEMPTS;
+    this.limits = resolveLimits(deps.limits);
   }
 
   async publish(input: PublishInput): Promise<Result<Published>> {
     const project = input.project === undefined ? ok(undefined) : normalizeProject(input.project);
     if (!project.ok) return project;
-    const prepared = await prepare(input);
+    const prepared = await prepare(input, this.limits);
     if (!prepared.ok) return prepared;
     const now = this.#clock.now().toISOString();
     if (input.id === undefined)
@@ -220,23 +241,18 @@ export class ArtifactService {
   }
 
   /**
-   * Artifacts, most recently updated first; `limit` is an integer 1..500 (default: all). With
-   * `project`, only artifacts whose stored project equals its normalised value; `all` ignores it.
+   * Artifacts, most recently updated first; `limit` is an integer 1..`limits.maxListLimit`
+   * (default: all). With `project`, only artifacts whose stored project equals its normalised
+   * value; `all` ignores it.
    */
   async list(
     options: { limit?: number; project?: string; all?: boolean } = {},
   ): Promise<Result<ArtifactSummary[]>> {
     const { limit } = options;
-    if (
-      limit !== undefined &&
-      (!Number.isInteger(limit) || limit < 1 || limit > LIMITS.maxListLimit)
-    ) {
+    const { maxListLimit } = this.limits;
+    if (limit !== undefined && (!Number.isInteger(limit) || limit < 1 || limit > maxListLimit)) {
       return fail(
-        invalidInput(
-          "limit",
-          `limit must be an integer from 1 to ${LIMITS.maxListLimit}`,
-          LIMITS.maxListLimit,
-        ),
+        invalidInput("limit", `limit must be an integer from 1 to ${maxListLimit}`, maxListLimit),
       );
     }
     let project: string | undefined;
@@ -566,23 +582,23 @@ function versionInfo(version: number, prepared: Prepared, createdAt: string): Ve
 }
 
 /** Validate limits and paths before anything is written. `index.html` comes first. */
-async function prepare(input: PublishInput): Promise<Result<Prepared>> {
+async function prepare(input: PublishInput, limits: Limits): Promise<Result<Prepared>> {
   const entries = Object.entries(input.files);
-  if (entries.length > LIMITS.maxFiles) {
+  if (entries.length > limits.maxFiles) {
     return fail(
       invalidInput(
         "files",
-        `too many files: at most ${LIMITS.maxFiles} per publish`,
-        LIMITS.maxFiles,
+        `too many files: at most ${limits.maxFiles} per publish`,
+        limits.maxFiles,
       ),
     );
   }
-  if (input.label !== undefined && [...input.label].length > LIMITS.maxLabelChars) {
+  if (input.label !== undefined && [...input.label].length > limits.maxLabelChars) {
     return fail(
       invalidInput(
         "label",
-        `label exceeds ${LIMITS.maxLabelChars} characters`,
-        LIMITS.maxLabelChars,
+        `label exceeds ${limits.maxLabelChars} characters`,
+        limits.maxLabelChars,
       ),
     );
   }
@@ -597,9 +613,9 @@ async function prepare(input: PublishInput): Promise<Result<Prepared>> {
     if (seen.has(path.toLowerCase())) return fail(invalidPath(rawPath, "duplicate path"));
     seen.add(path.toLowerCase());
     const body = typeof raw === "string" ? encoder.encode(raw) : raw;
-    if (body.length > LIMITS.maxFileBytes) return fail(tooLarge("file", LIMITS.maxFileBytes, path));
+    if (body.length > limits.maxFileBytes) return fail(tooLarge("file", limits.maxFileBytes, path));
     total += body.length;
-    if (total > LIMITS.maxPublishBytes) return fail(tooLarge("publish", LIMITS.maxPublishBytes));
+    if (total > limits.maxPublishBytes) return fail(tooLarge("publish", limits.maxPublishBytes));
     files.push({ path, contentType, size: body.length, body });
   }
   const entry = files.findIndex((f) => f.path === ENTRY_PAGE);

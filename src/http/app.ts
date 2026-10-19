@@ -37,6 +37,8 @@ export type AppConfig = {
   allowFilePath?: boolean;
   /** Interval between SSE heartbeat comments; default 20 s (tests inject a short one). */
   heartbeatMs?: number;
+  /** Request body cap on /api and /mcp; default `bodyCapFor(service.limits)` (0051). */
+  maxBodyBytes?: number;
 };
 
 export type AppDeps = {

@@ -1,6 +1,6 @@
 // Deterministic test doubles for the core ports, plus a ready-wired service.
 import { createMemoryStore, type MemoryStore } from "../../src/adapters/memory-store.ts";
-import { ArtifactService } from "../../src/core/artifact-service.ts";
+import { ArtifactService, type Limits } from "../../src/core/artifact-service.ts";
 import type {
   ArtifactEvent,
   BlobStore,
@@ -62,6 +62,7 @@ export function harness(
     pointers?: PointerStore;
     notifier?: RecordingNotifier;
     maxAttempts?: number;
+    limits?: Partial<Limits>;
   } = {},
 ): Harness {
   const clock = fakeClock();
@@ -74,6 +75,7 @@ export function harness(
     clock,
     ids: fakeIdGen(),
     maxAttempts: options.maxAttempts,
+    limits: options.limits,
   });
   return { service, store, notifier, clock };
 }
