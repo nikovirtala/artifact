@@ -13,7 +13,7 @@ import { type AppEnv, hostGuard, traversalGuard } from "./guards.ts";
 import { GALLERY_CSP, plainText, securityHeaders } from "./headers.ts";
 import { type HostPolicy, LocalHostPolicy } from "./host-policy.ts";
 import type { RawTargetHook } from "./raw-target.ts";
-import { reloadClient } from "./reload.ts";
+import { type ReloadClientConfig, reloadClient } from "./reload.ts";
 import { type ArtifactEvents, eventStream } from "./sse.ts";
 import { notFound, redirect, serveArtifact } from "./viewing.ts";
 
@@ -25,6 +25,8 @@ export type ViewingAppDeps = {
   hosts?: HostPolicy;
   /** Reads the raw request target; default `nodeServerRawTarget` (docs/decisions/0055). */
   rawTarget?: RawTargetHook;
+  /** Config prefix of the served reload client; default `LOCAL_RELOAD_CONFIG` (0058). */
+  reload?: ReloadClientConfig;
 };
 
 const VIEW_METHODS: ReadonlySet<string> = new Set(["GET", "HEAD"]);
@@ -42,7 +44,7 @@ export function createViewingApp(deps: ViewingAppDeps): Hono<AppEnv> {
   app.use(traversalGuard(csp, deps.rawTarget));
 
   // Platform routes, on every host. On <id>.localhost only that artifact's events are served.
-  app.get("/__artifact/reload.js", () => reloadClient());
+  app.get("/__artifact/reload.js", () => reloadClient(deps.reload));
   app.get("/__artifact/events", async (c) => {
     // Hono answers HEAD from the GET handler and drops the body, which would leave the stream
     // (and its subscription) open.

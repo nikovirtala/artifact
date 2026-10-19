@@ -61,3 +61,4 @@ One short file per decision, numbered in order. Status is **Accepted** (in effec
 | [0055](0055-raw-target-hook.md) | Raw request target through a server-adapter hook | Accepted |
 | [0056](0056-viewing-and-control-apps.md) | Viewing and control apps; local composition order and shared error handler | Accepted |
 | [0057](0057-version-route.md) | `GET /__artifact/version` on every artifact origin | Accepted |
+| [0058](0058-reload-client-config.md) | Reload client config prefix; the local prefix is line 1 of the client file | Accepted |

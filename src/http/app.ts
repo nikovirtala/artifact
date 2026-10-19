@@ -8,6 +8,7 @@ import { appErrorHandler } from "./errors.ts";
 import type { AppEnv } from "./guards.ts";
 import { type HostPolicy, LocalHostPolicy } from "./host-policy.ts";
 import { nodeServerRawTarget, type RawTargetHook } from "./raw-target.ts";
+import type { ReloadClientConfig } from "./reload.ts";
 import type { ArtifactEvents } from "./sse.ts";
 import { localTokenVerifier, type TokenVerifier } from "./token.ts";
 import type { Isolation } from "./urls.ts";
@@ -41,6 +42,8 @@ export type AppDeps = {
   verifyToken?: TokenVerifier;
   /** Reads the raw request target; default `nodeServerRawTarget` (docs/decisions/0055). */
   rawTarget?: RawTargetHook;
+  /** Config prefix of the served reload client; default `LOCAL_RELOAD_CONFIG` (0058). */
+  reload?: ReloadClientConfig;
 };
 
 /**
