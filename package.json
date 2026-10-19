@@ -48,6 +48,7 @@
     "prepublishOnly": "pnpm check && pnpm build"
   },
   "devDependencies": {
+    "@aws-sdk/client-s3": "3.1152.0",
     "@biomejs/biome": "2.5.15",
     "@types/node": "^24.19.2",
     "fast-check": "4.10.2",
