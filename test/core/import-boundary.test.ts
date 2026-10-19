@@ -105,6 +105,34 @@ function scan(patterns: string[]): string[] {
   );
 }
 
+// docs/decisions/0059: the shipped package never depends on the dev-only aws/ workspace, and the
+// Lambda sources in src/runtime/ never pull in the CDK.
+const awsWorkspace = join(root, "aws");
+const cdkModules = /^aws-cdk-lib(\/|$)|^constructs(\/|$)/;
+
+/** Forbidden specifiers of any src/ file under the 0059 layout rules. */
+function layoutViolations(file: string, source: string): string[] {
+  const [area] = relative(src, file).split(sep);
+  return specifiers(source).filter((spec) => {
+    if (spec.startsWith(".")) {
+      const target = resolve(dirname(file), spec);
+      if (target === awsWorkspace || target.startsWith(awsWorkspace + sep)) return true;
+      if (area === "runtime") return targetDir(file, spec) === "cdk";
+      return false;
+    }
+    return area === "runtime" && cdkModules.test(spec);
+  });
+}
+
+function scanLayout(patterns: string[]): string[] {
+  const files = globSync(patterns, { cwd: root }).map((f) => join(root, f));
+  return files.flatMap((file) =>
+    layoutViolations(file, readFileSync(file, "utf8")).map(
+      (spec) => `${relative(root, file)}: ${spec}`,
+    ),
+  );
+}
+
 describe("v2 import boundaries", () => {
   it("v1 code never imports src/cdk/, src/runtime/, aws-cdk-lib or @aws-sdk/*", () => {
     const files = globSync(v1Globs, { cwd: root });
@@ -159,6 +187,36 @@ describe("v2 import boundaries", () => {
       "@aws-sdk/client-sts",
       "aws-cdk-lib",
     ]);
+  });
+
+  it("src/** never imports aws/; src/runtime/** never imports src/cdk/ or the CDK", () => {
+    assert.deepEqual(scanLayout(["src/**/*.ts"]), []);
+  });
+
+  it("detects aws/ imports anywhere in src/ and CDK imports in src/runtime/", () => {
+    const file = join(src, "runtime", "adapters", "x.ts");
+    const source = [
+      'import { stack } from "../../cdk/a.ts";',
+      'import { App } from "aws-cdk-lib";',
+      'import { Bucket } from "aws-cdk-lib/aws-s3";',
+      'import { Construct } from "constructs";',
+      'import "../../../aws/bin/x.ts";',
+      'import { S3Client } from "@aws-sdk/client-s3";',
+      'import { assertValidKey } from "../../adapters/keys.ts";',
+      'import type { BlobStore } from "../../core/ports.ts";',
+      'import { x } from "constructsx";',
+    ].join("\n");
+    assert.deepEqual(layoutViolations(file, source), [
+      "../../cdk/a.ts",
+      "aws-cdk-lib",
+      "aws-cdk-lib/aws-s3",
+      "constructs",
+      "../../../aws/bin/x.ts",
+    ]);
+    const v1 = ['import "../../aws/lib/stack.ts";', 'import "../core/ports.ts";'].join("\n");
+    assert.deepEqual(layoutViolations(join(src, "cli", "x.ts"), v1), ["../../aws/lib/stack.ts"]);
+    const cdk = ['import { App } from "aws-cdk-lib";', 'import "../../aws/x.ts";'].join("\n");
+    assert.deepEqual(layoutViolations(join(src, "cdk", "x.ts"), cdk), ["../../aws/x.ts"]);
   });
 
   it("src/cdk/ may use aws-cdk-lib but not import src/runtime/", () => {
