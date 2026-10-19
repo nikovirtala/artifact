@@ -10,6 +10,7 @@ import { createUlidIdGen } from "../adapters/ulid.ts";
 import { type Env, resolveServeConfig, SERVE_USAGE } from "../config.ts";
 import { ArtifactService } from "../core/artifact-service.ts";
 import { createApp } from "../http/app.ts";
+import { nodeServerRawTarget } from "../http/raw-target.ts";
 import { type Listening, listen, PortInUseError } from "../http/server.ts";
 import { createCliOpener } from "./opener.ts";
 
@@ -79,7 +80,14 @@ export async function runServe(args: readonly string[], env: Env): Promise<numbe
     err(`artifact: warning: orphan sweep failed: ${(error as Error).message}`);
   }
   const opener = config.open ? createCliOpener({ env, warn: err }) : undefined;
-  const app = createApp({ service, events: notifier, config, opener });
+  // The raw-target hook matches the server adapter below (docs/decisions/0055).
+  const app = createApp({
+    service,
+    events: notifier,
+    config,
+    opener,
+    rawTarget: nodeServerRawTarget,
+  });
 
   let listening: Listening;
   try {

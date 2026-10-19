@@ -22,6 +22,7 @@ import {
 } from "./guards.ts";
 import { GALLERY_CSP, plainText, securityHeaders } from "./headers.ts";
 import { type HostPolicy, LocalHostPolicy } from "./host-policy.ts";
+import type { RawTargetHook } from "./raw-target.ts";
 import { reloadClient } from "./reload.ts";
 import { type ArtifactEvents, eventStream } from "./sse.ts";
 import { localTokenVerifier, type TokenVerifier } from "./token.ts";
@@ -53,6 +54,8 @@ export type AppDeps = {
   hosts?: HostPolicy;
   /** Bearer check on /api and /mcp; default `localTokenVerifier(config.token)` (0054). */
   verifyToken?: TokenVerifier;
+  /** Reads the raw request target; default `nodeServerRawTarget` (docs/decisions/0055). */
+  rawTarget?: RawTargetHook;
 };
 
 const MCP_PATH = "/mcp";
@@ -74,7 +77,7 @@ export function createApp(deps: AppDeps): Hono<AppEnv> {
   app.notFound(() => notFound(csp));
 
   app.use(hostGuard(hosts, csp));
-  app.use(traversalGuard(csp));
+  app.use(traversalGuard(csp, deps.rawTarget));
 
   // Platform routes, on every host. On <id>.localhost only that artifact's events are served.
   app.get("/__artifact/reload.js", () => reloadClient());

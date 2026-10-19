@@ -5,6 +5,7 @@ import type { Context, MiddlewareHandler } from "hono";
 import { badRequest, httpError, jsonError } from "./errors.ts";
 import { plainText } from "./headers.ts";
 import { type AcceptedHost, type HostPolicy, LocalHostPolicy } from "./host-policy.ts";
+import { nodeServerRawTarget, type RawTargetHook } from "./raw-target.ts";
 import { localTokenVerifier, type TokenVerifier } from "./token.ts";
 
 export type { AcceptedHost, HostKind } from "./host-policy.ts";
@@ -51,10 +52,10 @@ export function parseIfMatch(value: string): { ok: true; value: number } | { ok:
   return Number.isSafeInteger(version) ? { ok: true, value: version } : { ok: false };
 }
 
-/** The request target as the client sent it, before any URL normalisation. */
-export function rawTarget(c: Context<AppEnv>): string {
-  const raw = c.env?.incoming?.url;
-  if (typeof raw === "string") return raw;
+/** The request target as the client sent it, before any URL normalisation (0055). */
+export function rawTarget(c: Context<AppEnv>, hook: RawTargetHook = nodeServerRawTarget): string {
+  const raw = hook(c);
+  if (raw !== undefined) return raw;
   const url = new URL(c.req.url);
   return url.pathname + url.search;
 }
@@ -77,11 +78,13 @@ export function hostGuard(policy: HostPolicy | number, csp?: string): Middleware
   };
 }
 
-export function traversalGuard(csp?: string): MiddlewareHandler<AppEnv> {
+/** Without a host guard in front (a standalone control app), the request counts as main. */
+export function traversalGuard(csp?: string, hook?: RawTargetHook): MiddlewareHandler<AppEnv> {
   return async (c, next) => {
-    const target = rawTarget(c);
+    const target = rawTarget(c, hook);
     if (!hasUnsafeSegment(target)) return next();
-    if (c.get("host").kind === "main" && isApiPath(target.split(/[?#]/, 1)[0])) {
+    const host: AcceptedHost | undefined = c.get("host");
+    if ((host?.kind ?? "main") === "main" && isApiPath(target.split(/[?#]/, 1)[0])) {
       return badRequest("unsafe path in request URL");
     }
     return plainText(400, "bad request: unsafe path\n", csp);

@@ -58,3 +58,4 @@ One short file per decision, numbered in order. Status is **Accepted** (in effec
 | [0052](0052-version-pruning.md) | `pruneVersions`: keepLast AND olderThan; current and latest kept; pointer CAS first | Accepted |
 | [0053](0053-host-policy.md) | `HostPolicy` port: `LocalHostPolicy` and `DomainHostPolicy` (port and label rules) | Accepted |
 | [0054](0054-token-verifier.md) | `TokenVerifier` port for bearer tokens | Accepted |
+| [0055](0055-raw-target-hook.md) | Raw request target through a server-adapter hook | Accepted |
