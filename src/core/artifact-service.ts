@@ -5,7 +5,8 @@
 //   3. write the remaining src/ files, then www/ (html injected), then manifest.json create-only;
 //   4. compare-and-swap the pointer on its etag (the commit), then notify.
 // A crash before step 4 leaves an orphaned version that is never current or listed;
-// `sweepOrphans` removes it once it is old enough.
+// `sweepOrphans` removes it once it is old enough. `pruneVersions` drops old committed versions
+// (docs/decisions/0052): pointer first, then the objects.
 
 import {
   type ArtifactError,
@@ -79,6 +80,20 @@ export const SWEEP_MIN_AGE_MS = 10 * 60 * 1000;
 
 /** Uncommitted versions and folders without `meta.json` removed by one sweep. */
 export type SweepResult = { versions: number; folders: number };
+
+/**
+ * Which committed versions `pruneVersions` removes: those outside the newest `keepLast` (by
+ * number) and created more than `olderThan` ms ago. With one option, that one decides.
+ */
+export type PruneOptions = { keepLast?: number; olderThan?: number };
+
+/**
+ * Artifacts whose pointer was rewritten, versions removed in total, and artifacts given up on:
+ * the pointer swap still conflicted after `maxAttempts`, reading or writing the pointer failed
+ * (nothing removed), or deleting a pruned version's objects failed (the pointer no longer lists
+ * it; the orphan sweep removes what is left).
+ */
+export type PruneResult = { artifacts: number; versions: number; skipped: number };
 
 /** Version directory names the publish protocol writes (`v/<n>/`); others are left alone. */
 const CANONICAL_VERSION = /^[1-9][0-9]*$/;
@@ -433,6 +448,87 @@ export class ArtifactService {
       }
     }
     return result;
+  }
+
+  /**
+   * Remove committed versions chosen by `options` from every artifact (docs/decisions/0052). The
+   * current version and the highest-numbered one are never removed: publish numbers from the
+   * latter, so a pruned `/v/<n>/` URL is never reused. Each artifact's pointer is swapped first
+   * (retried on conflict, `updatedAt` unchanged), then the versions' objects are deleted, claim key
+   * last. No events: nothing a viewer sees changes.
+   */
+  async pruneVersions(options: PruneOptions): Promise<Result<PruneResult>> {
+    const { keepLast, olderThan } = options;
+    if (keepLast === undefined && olderThan === undefined) {
+      return fail(invalidInput("options", "pass keepLast, olderThan or both"));
+    }
+    if (keepLast !== undefined && (!Number.isSafeInteger(keepLast) || keepLast < 1)) {
+      return fail(invalidInput("keepLast", "keepLast must be a positive integer"));
+    }
+    if (olderThan !== undefined && (!Number.isFinite(olderThan) || olderThan < 0)) {
+      return fail(
+        invalidInput("olderThan", "olderThan must be a non-negative number of milliseconds"),
+      );
+    }
+    const cutoff = olderThan === undefined ? undefined : this.#clock.now().getTime() - olderThan;
+    const victims = (meta: ArtifactMeta): number[] => {
+      const numbers = meta.versions.map((v) => v.version).sort((a, b) => b - a);
+      const kept = new Set([meta.currentVersion, numbers[0], ...numbers.slice(0, keepLast ?? 0)]);
+      return meta.versions
+        .filter((v) => !kept.has(v.version))
+        .filter((v) => cutoff === undefined || Date.parse(v.createdAt) < cutoff)
+        .map((v) => v.version);
+    };
+    const result: PruneResult = { artifacts: 0, versions: 0, skipped: 0 };
+    const { commonPrefixes } = await this.#blobs.list(ARTIFACTS_PREFIX, { delimiter: "/" });
+    const ids = commonPrefixes
+      .map((p) => p.slice(ARTIFACTS_PREFIX.length, -1))
+      .filter((id) => isArtifactId(id));
+    for (const id of ids) {
+      // Any failure on one artifact (pointer read or write, deletes) skips it, not the run.
+      const pruned = await this.#prune(id, victims).catch(() => undefined);
+      if (pruned === undefined) {
+        result.skipped++;
+        continue;
+      }
+      if (pruned.length === 0) continue;
+      result.artifacts++;
+      result.versions += pruned.length;
+    }
+    return ok(result);
+  }
+
+  /**
+   * Swap `id`'s pointer without its victims, then delete their objects; the pruned versions, or
+   * `undefined` when the swap kept conflicting. Storage errors reject.
+   */
+  async #prune(
+    id: string,
+    victims: (meta: ArtifactMeta) => number[],
+  ): Promise<number[] | undefined> {
+    for (let attempt = 0; attempt < this.#maxAttempts; attempt++) {
+      const pointer = await this.#readPointer(id);
+      if (!pointer) return [];
+      const pruned = victims(pointer.meta);
+      if (pruned.length === 0) return [];
+      const meta: ArtifactMeta = {
+        ...pointer.meta,
+        versions: pointer.meta.versions.filter((v) => !pruned.includes(v.version)),
+      };
+      // On a failed swap (a publish, rollback or delete moved the pointer), re-read and recompute.
+      if (!(await this.#swap(id, pointer, meta))) continue;
+      for (const version of pruned) {
+        const claim = srcKey(id, version, ENTRY_PAGE);
+        const { keys } = await this.#blobs.list(`${artifactPrefix(id)}v/${version}/`);
+        await forEachLimited(
+          keys.filter((key) => key !== claim),
+          (key) => this.#blobs.delete(key),
+        );
+        await this.#blobs.delete(claim);
+      }
+      return pruned;
+    }
+    return undefined;
   }
 
   async #create(
