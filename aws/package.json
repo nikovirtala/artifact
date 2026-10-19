@@ -9,6 +9,7 @@
     "test": "node --test \"test/**/*.test.ts\"",
     "test:e2e": "node scripts/e2e.ts",
     "test:e2e:fake": "node scripts/e2e.ts --fake",
+    "test:s3": "node scripts/s3-tests.ts",
     "check": "pnpm typecheck && pnpm test && pnpm test:e2e:fake",
     "dev:serve": "node bin/artifact-s3.ts serve",
     "synth": "cdk synth --quiet --no-notices"

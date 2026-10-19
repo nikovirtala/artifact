@@ -29,3 +29,5 @@ pnpm --filter aws test:e2e
 ## Consequences
 
 The bucket and the role exist only once the owner deploys them. Until then the real-bucket suites are skipped and the fake endpoint stands in. The role can do nothing outside this bucket, and nothing outside the named environment can assume it.
+
+Update (CI): `pnpm test:s3` runs every real-bucket test in one command: the contract and concurrency files, then the e2e suite through the dev harness. It exits 1 when `ARTIFACT_TEST_BUCKET` is unset, so it never passes by skipping. `.github/workflows/s3-contract.yml` runs it on `workflow_dispatch` only (never on pull requests or pushes), in the `s3-contract` environment, assuming `vars.ARTIFACT_TEST_ROLE_ARN` through `aws-actions/configure-aws-credentials` (pinned by commit SHA) with `id-token: write`, and with `ARTIFACT_TEST_BUCKET` from `vars.ARTIFACT_TEST_BUCKET`. To enable it: deploy the stack, create the `s3-contract` environment, set both repository variables from the stack outputs, and run "S3 contract" by hand. Locally, after deploying: `ARTIFACT_TEST_BUCKET=<BucketName> AWS_REGION=eu-north-1 pnpm test:s3`.
