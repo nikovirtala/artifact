@@ -77,3 +77,4 @@ One short file per decision, numbered in order. Status is **Accepted** (in effec
 | [0071](0071-artifact-hosting-api.md) | `ArtifactHosting` API, the M9 subset of the M10/M11 props, and the construct-scope rule with its auto-delete exception | Accepted |
 | [0072](0072-http-api-control-plane.md) | Control plane on an HTTP API: Regional custom domain, three routes, throttling, explicit access-log fields (V4, V5) | Accepted |
 | [0073](0073-construct-package-shape.md) | Construct package shape: `./cdk` export, optional peers, source condition, declarations for `dist/cdk` only with `.js` specifiers | Accepted |
+| [0074](0074-pack-test-cdk-app.md) | Pack test: optional peers, tarball CDK app (TS 5.9.3 `target: esnext` without `skipLibCheck`, CloudFormation Validate clean); CI synth without AWS access | Accepted |

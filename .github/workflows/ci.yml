@@ -15,6 +15,10 @@ concurrency:
 jobs:
   check:
     runs-on: ubuntu-latest
+    # No AWS credentials or OIDC: synth and the pack test never reach AWS (docs/decisions/0074).
+    env:
+      AWS_EC2_METADATA_DISABLED: "true"
+      CDK_DISABLE_CLI_TELEMETRY: "true"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
