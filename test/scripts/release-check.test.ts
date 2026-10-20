@@ -2,8 +2,13 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
   atLeast,
+  bumpVersion,
+  commitBump,
   compareSemver,
   distTag,
+  highestBump,
+  latestReleaseTag,
+  nextRelease,
   parseSemver,
   parseView,
   plan,
@@ -161,5 +166,103 @@ describe("registryState", () => {
     const state = registryState("pkg", "1.0.0", view({}));
     assert.deepEqual(state, { published: false, latest: undefined });
     assert.equal(plan("1.0.0", state).publish, true);
+  });
+});
+
+describe("commitBump", () => {
+  it("releases feat as minor and fix or perf as patch", () => {
+    assert.equal(commitBump("feat: add x"), "minor");
+    assert.equal(commitBump("feat(cli): add x\n\nWhy."), "minor");
+    assert.equal(commitBump("Feat: add x"), "minor");
+    assert.equal(commitBump("fix(http): y"), "patch");
+    assert.equal(commitBump("perf: z"), "patch");
+  });
+  it("releases breaking changes as major", () => {
+    assert.equal(commitBump("feat!: drop x"), "major");
+    assert.equal(commitBump("fix(cli)!: drop y"), "major");
+    assert.equal(commitBump("chore!: drop node 22"), "major");
+    assert.equal(commitBump("feat: x\n\nWhy.\n\nBREAKING CHANGE: x is gone"), "major");
+    assert.equal(commitBump("fix: x\n\nBREAKING-CHANGE: x is gone"), "major");
+  });
+  it("needs an uppercase BREAKING CHANGE footer", () => {
+    assert.equal(commitBump("fix: x\n\nbreaking change: x is gone"), "patch");
+    assert.equal(commitBump("fix: mention BREAKING CHANGE: in the header"), "patch");
+    assert.equal(commitBump("docs: x\n\nsee BREAKING CHANGE: inline"), undefined);
+  });
+  it("does not release anything else", () => {
+    for (const message of [
+      "chore: x",
+      "docs: x",
+      "ci: x",
+      "refactor(core): x",
+      "test: x",
+      "revert: feat: x\n\nThis reverts commit abc.",
+      "Merge branch 'main'",
+      "garbage",
+      "feat:missing space",
+      "",
+    ]) {
+      assert.equal(commitBump(message), undefined, message);
+    }
+  });
+});
+
+describe("highestBump", () => {
+  it("returns the largest bump", () => {
+    assert.equal(highestBump(["docs: a", "fix: b", "feat: c", "fix: d"]), "minor");
+    assert.equal(highestBump(["fix: b", "feat!: c", "feat: d"]), "major");
+    assert.equal(highestBump(["chore: a", "perf: b"]), "patch");
+  });
+  it("returns undefined without releasing commits", () => {
+    assert.equal(highestBump([]), undefined);
+    assert.equal(highestBump(["docs: a", "ci: b"]), undefined);
+  });
+});
+
+describe("bumpVersion", () => {
+  it("bumps and resets the lower parts", () => {
+    assert.equal(bumpVersion("1.0.0", "major"), "2.0.0");
+    assert.equal(bumpVersion("1.0.0", "minor"), "1.1.0");
+    assert.equal(bumpVersion("1.0.0", "patch"), "1.0.1");
+    assert.equal(bumpVersion("1.2.3", "minor"), "1.3.0");
+    assert.equal(bumpVersion("1.2.3", "major"), "2.0.0");
+  });
+  it("throws for prereleases and non-semver", () => {
+    assert.throws(() => bumpVersion("1.1.0-beta.1", "patch"), /not a stable/);
+    assert.throws(() => bumpVersion("1.0", "patch"), /not a stable/);
+  });
+});
+
+describe("latestReleaseTag", () => {
+  it("picks the highest stable vX.Y.Z tag", () => {
+    assert.equal(latestReleaseTag(["v1.9.0", "v1.10.0", "v1.2.0"]), "v1.10.0");
+    assert.equal(latestReleaseTag(["v1.0.0", "v1.1.0-beta.1", "vfoo", "1.2.0"]), "v1.0.0");
+  });
+  it("returns undefined without a release tag", () => {
+    assert.equal(latestReleaseTag([]), undefined);
+    assert.equal(latestReleaseTag(["v2.0.0-rc.1", "1.0.0"]), undefined);
+  });
+});
+
+describe("nextRelease", () => {
+  it("fails without a release tag", () => {
+    assert.throws(() => nextRelease({ tag: undefined, messages: [] }), /no release tag/);
+  });
+  it("reports when nothing releases", () => {
+    assert.deepEqual(nextRelease({ tag: "v1.0.0", messages: ["docs: a", "ci: b"] }), {
+      base: "1.0.0",
+      reason: "no feat, fix, perf or breaking commits since v1.0.0",
+    });
+    assert.deepEqual(nextRelease({ tag: "v1.0.0", messages: [] }), {
+      base: "1.0.0",
+      reason: "no feat, fix, perf or breaking commits since v1.0.0",
+    });
+  });
+  it("bumps the tag version", () => {
+    assert.deepEqual(nextRelease({ tag: "v1.0.0", messages: ["fix: a", "feat(cli): b"] }), {
+      base: "1.0.0",
+      bump: "minor",
+      version: "1.1.0",
+    });
   });
 });
