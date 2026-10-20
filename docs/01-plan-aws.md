@@ -398,7 +398,7 @@ Build artifact v2 (AWS deployment) as described in docs/01-plan-aws.md, mileston
 **Later work** (not in v2):
 
 - Public or unlisted links per artifact: a `visibility` field in `meta.json`, mirrored to a KVS allowlist the edge function checks.
-- Staged uploads for publishes over 4 MiB: presigned `PUT`s to a staging prefix, then a publish that references them.
+- **Recommended next step after v2.** Staged uploads for publishes over the AWS limits (3 MiB by default, see [0066](decisions/0066-control-lambda.md)): presigned `PUT`s to a staging prefix, then a publish that references them, lifting the ~6 MB Lambda ceiling.
 - OAuth 2.1 for MCP clients (protected resource metadata, an authorization server), replacing static tokens.
 - A `DynamoDB` index for `list` if one `GET` per artifact becomes slow.
 - Other languages (Python, Java, …) and a Construct Hub listing through jsii, only if someone asks for it.

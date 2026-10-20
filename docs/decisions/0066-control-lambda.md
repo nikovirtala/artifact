@@ -1,0 +1,32 @@
+# 0066. Control Lambda: Hono on Lambda, owner-decided AWS limits, request-shape line, no cookies
+
+Status: Accepted (M9)
+
+## Context
+
+On AWS, `/api` and `/mcp` run as one Lambda function behind an API Gateway HTTP API (`docs/01-plan-aws.md`, "Construct library and infrastructure"). The plan sets 4 MiB per file and per publish (decoded) and a request body cap under Lambda's limit of about 6 MB, and relies on fact **V3**: Lambda's synchronous request limit is about 6 MB, and an HTTP API passes bodies of that size to Lambda. The view domain's session cookie (M10) also reaches the API host, because the API host is under the view domain; it must never be logged.
+
+### V3 result: partly holds
+
+- **V3a holds.** Lambda allows 6 MB per synchronous invocation for request and response, and the documentation uses MB for 1,024 KB, so 6,291,456 bytes. The limit applies to the whole invocation event (the payload 2.0 JSON with headers, `requestContext` and the body as a JSON string), not to the HTTP body. Source: [Lambda quotas](https://docs.aws.amazon.com/lambda/latest/dg/gettingstarted-limits.html).
+- **V3b holds.** An HTTP API accepts a 10 MB payload, a request line plus headers of at most 10,240 bytes, and an integration timeout of at most 30 s. API Gateway therefore forwards bodies larger than Lambda accepts; the effective limit is Lambda's 6 MB event. Source: [HTTP API quotas](https://docs.aws.amazon.com/apigateway/latest/developerguide/http-api-quotas.html).
+- **V3c cannot be confirmed:** whether payload format 2.0 base64-encodes an `application/json` request body. The payload format page shows `"isBase64Encoded": false` for a plain-text body but does not list which content types are encoded ([Lambda integrations for HTTP APIs](https://docs.aws.amazon.com/apigateway/latest/developerguide/http-api-develop-integrations-lambda.html)). The only AWS statement found says that the integration infers the need for encoding from the `content-type` header, with examples only for `text/plain` (not encoded) and `image/jpeg` (encoded) ([Handling binary data using HTTP APIs](https://aws.amazon.com/blogs/compute/handling-binary-data-using-amazon-api-gateway-http-apis/)).
+- **Why it matters.** A 4 MiB binary file is 5,592,408 bytes as base64 inside the JSON body. Sent as text, the event is about 5.6 MB plus an envelope of at most about 12 KB, under 6,291,456: 4 MiB fits with about 690 KB to spare. Base64-encoded by API Gateway, the event is 4/3 of the body, about 7.46 MB, and is rejected before the handler runs (API Gateway's error, not `too_large`); the largest body that fits is then about 4.7 MB, about 3.4 MiB of decoded binary. Text bodies are escaped once more inside the event JSON (`"` → `\"`), so quote-heavy text near the cap can exceed 6 MB either way.
+
+### Owner decision: option B
+
+The owner was asked (keep 4 MiB and prove V3c on the first deploy; lower the limits now; or pull staged uploads forward) and chose **option B**: 3 MiB (3,145,728 bytes) per file and per publish (decoded), a request body cap of 4,500,000 bytes, and a 3.5 MiB file for the M9 "large file → `too_large`" check instead of 5 MiB. The owner states that AWS documentation specifies, for payload format 2.0, that a `Content-Type: application/json` request is not base64-encoded (the raw body arrives as UTF-8 in `event.body` with `isBase64Encoded: false`). This research did not find that statement; the two sources above are what it found. Option B does not depend on V3c: 4,500,000 × 4/3 = 6,000,000 bytes plus an envelope of at most about 12 KB stays under 6,291,456 even if the body is encoded.
+
+## Decision
+
+- **Handler.** `src/runtime/handlers/control.ts` serves `createControlApp` (0056) through `hono/aws-lambda` with `allowFilePath: false`, no opener, `DomainHostPolicy` for the view domain (artifact URLs `https://<id>.<viewDomain>/`, 0053), the Secrets Manager token verifier (0065) and `lambdaRawTarget` (`rawPath` + `rawQueryString`, 0055). The integration uses payload format 2.0 (asserted by a construct test). `src/runtime/entries/control.ts` holds only the wiring: environment → `S3Client` → `createS3Store` (0060) → `ArtifactService` with a no-op notifier (live reload arrives in M11) → token verifier → handler.
+- **Limits.** Defaults 3 MiB per file and per publish, 500 files, body cap 4,500,000 bytes; the construct's `limits` prop may raise them to ceilings of 4 MiB, 4 MiB and 6,000,000 bytes, and must keep binary headroom: `maxBodyBytes ≥ ceil(maxPublishBytes × 4 / 3) + 65,536`. A body over the cap gets 413 `too_large` (publish, 0051); a body under the cap but over a core limit gets the core's precise `too_large`. An event over 6 MB never reaches the handler and gets API Gateway's error.
+- **Cookies stripped first.** The wrapper removes the event's `cookies` array and any `Cookie` header (any case) before Hono builds the request, because `hono/aws-lambda` turns `cookies` back into a `Cookie` header and logs request-construction errors itself. The control plane authenticates by bearer token only, so nothing is lost; the cookie never enters `c.req`, error objects or the MCP transport (fact A4 in the M9 AWS facts: payload 2.0 combines cookie headers into `cookies`; `rawPath` lacks any base-path mapping, so the API is mapped at the root).
+- **Request-shape line.** For every event with a body, the wrapper logs `artifact request {"requestId","method","routeKey","contentType","isBase64Encoded","bodyLength"}` from the stripped event: the media type only, lowercased, without parameters, at most 100 characters; no body, path, query or other header. The smoke script reads it back after a JSON publish to show what API Gateway really sends.
+- **`hono/aws-lambda` is deprecated** in favour of `@hono/aws-lambda` and goes away in Hono 5. It is used as the plan says, with no new dependency; switching is a one-line import change when the package moves to Hono 5.
+
+## Consequences
+
+- Publishes up to 3 MiB work on AWS whatever V3c turns out to be. When the deployed request-shape line shows `isBase64Encoded: false` for `application/json`, the owner can raise `limits` toward 4 MiB / 4 MiB / 6,000,000 bytes in the stage config with no code change; with `true`, option B stays.
+- Text with many characters to escape can still hit the cap near the limit and gets the 413 of the cap.
+- **Staged uploads** (presigned S3 `PUT`s to a staging prefix, then a publish that references them) are the recommended next step after v2 to lift the Lambda ceiling; `docs/01-plan-aws.md` "Later work" points here.
