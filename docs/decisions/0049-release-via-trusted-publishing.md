@@ -1,6 +1,6 @@
 # 0049. Release on merge via GitHub Actions trusted publishing
 
-Status: Accepted (release)
+Status: Accepted (release); versioning superseded by [0077](0077-version-from-tags.md)
 
 ## Context
 
