@@ -7,6 +7,7 @@ import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 import { App, type Stack } from "aws-cdk-lib";
 import { Template } from "aws-cdk-lib/assertions";
+import { tarballAppFiles } from "../../../scripts/lib/tarball-app.ts";
 import { buildApp } from "../lib/app.ts";
 import { ownersFromEnv } from "../lib/config.ts";
 import { stages } from "../lib/stages.ts";
@@ -131,6 +132,52 @@ describe("examples/personal", () => {
     assert.deepEqual(
       JSON.parse(readFileSync(fixture, "utf8")),
       JSON.parse(readFileSync(installed, "utf8")),
+    );
+  });
+});
+
+describe("README (the CloudShell guide)", () => {
+  const readme = readFileSync(join(here, "README.md"), "utf8");
+
+  it("shows exactly the tarball app that pack-test (b3) synthesizes", () => {
+    const step = readme.slice(
+      readme.indexOf("3. Replace `bin/tarball-app.ts`"),
+      readme.indexOf("4. Deploy"),
+    );
+    const blocks = [...step.matchAll(/^ {3}```ts\n([\s\S]*?)^ {3}```$/gm)].map((m) =>
+      m[1].replace(/^ {3}/gm, ""),
+    );
+    const { bin, stack } = tarballAppFiles("tarball-app");
+    assert.deepEqual(blocks, [bin.text, stack.text]);
+  });
+
+  it("holds no account id, email address or GitHub token", () => {
+    assert.doesNotMatch(readme, TWELVE_DIGITS);
+    assert.doesNotMatch(readme, /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[a-z]{2,}/);
+    assert.match(readme, /ARTIFACT_OWNERS=<email>/);
+    assert.doesNotMatch(readme, /ghp_|github_pat_/);
+  });
+
+  it("names only pnpm scripts that exist", () => {
+    const scripts = (dir: string) =>
+      Object.keys(
+        (JSON.parse(readFileSync(join(dir, "package.json"), "utf8")) as { scripts: object })
+          .scripts,
+      );
+    const known = new Set([
+      ...scripts(here),
+      ...scripts(repo),
+      "install",
+      "exec",
+      "config",
+      "pack",
+      "--version",
+    ]);
+    const named = [...readme.matchAll(/\bpnpm ([a-z:-]+)/g)].map((m) => m[1]);
+    assert.ok(named.includes("smoke") && named.includes("check:dns"));
+    assert.deepEqual(
+      named.filter((n) => !known.has(n)),
+      [],
     );
   });
 });
