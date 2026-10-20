@@ -2,3 +2,7 @@
 packages:
   - aws
   - examples/*
+
+# esbuild needs no postinstall: its binary comes from @esbuild/<platform> (docs/decisions/0068).
+allowBuilds:
+  esbuild: false
