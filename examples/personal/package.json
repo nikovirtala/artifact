@@ -1,0 +1,22 @@
+{
+  "name": "artifact-personal",
+  "version": "0.0.0",
+  "private": true,
+  "description": "The reference deployment of @nikovirtala/artifact/cdk: stages, DNS, certificate and platform stacks",
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "node --conditions=artifact-source --test \"test/**/*.test.ts\"",
+    "synth": "cdk synth --quiet --no-notices",
+    "synth:ci": "ARTIFACT_OWNERS=owner@example.com AWS_EC2_METADATA_DISABLED=true cdk synth --quiet --no-notices --output cdk.out.ci",
+    "check": "pnpm typecheck && pnpm test && pnpm synth:ci"
+  },
+  "devDependencies": {
+    "@nikovirtala/artifact": "workspace:*",
+    "@types/node": "^24.19.2",
+    "aws-cdk": "2.1145.0",
+    "aws-cdk-lib": "2.273.0",
+    "constructs": "10.8.1",
+    "typescript": "7.0.2"
+  }
+}

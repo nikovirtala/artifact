@@ -5,6 +5,7 @@ coverage/
 .DS_Store
 *.log
 cdk.out/
+cdk.out.ci/
 
 # Local agent working state (task notes, reviews, worktrees); never committed
 .agents/
