@@ -149,7 +149,7 @@ pnpm format                   # apply biome formatting and fixes
 
 ## Releases
 
-Merging a pull request that bumps `version` in `package.json` publishes it to npm from GitHub Actions and creates the GitHub Release. See [RELEASING.md](RELEASING.md).
+Every push to `main` with `feat`, `fix`, `perf` or breaking commits publishes the next version, computed from git tags and Conventional Commits, to npm from GitHub Actions and creates the GitHub Release. See [RELEASING.md](RELEASING.md).
 
 ## License
 
