@@ -189,6 +189,17 @@ describe("v2 import boundaries", () => {
     ]);
   });
 
+  it("src/cli/token.ts loads the Secrets Manager SDK only by dynamic import (0065)", () => {
+    const source = readFileSync(tokenFile, "utf8");
+    const forms = [...source.matchAll(specifierPattern)].filter((m) =>
+      awsSdk.test(m[1] ?? m[2] ?? m[3]),
+    );
+    assert.deepEqual(
+      forms.map((m) => [m[3] !== undefined, m[1] ?? m[2] ?? m[3]]),
+      [[true, "@aws-sdk/client-secrets-manager"]],
+    );
+  });
+
   it("src/** never imports aws/; src/runtime/** never imports src/cdk/ or the CDK", () => {
     assert.deepEqual(scanLayout(["src/**/*.ts"]), []);
   });
