@@ -1,7 +1,9 @@
-// Steps of .github/workflows/publish.yml (docs/decisions/0049). Uses only node builtins,
+// Steps of .github/workflows/publish.yml (docs/decisions/0049, 0077). Uses only node builtins,
 // so it runs before `pnpm install`.
 //   node scripts/release-check.ts npm    npm is new enough for trusted publishing
-//   node scripts/release-check.ts plan   whether the package.json version still needs publishing;
+//   node scripts/release-check.ts next   the next version from v* tags and Conventional Commits
+//                                        (git only, no npm)
+//   node scripts/release-check.ts plan   whether that version needs publishing;
 //                                        writes publish, version and tag to $GITHUB_OUTPUT
 import { execFileSync, spawnSync } from "node:child_process";
 import { appendFileSync, readFileSync } from "node:fs";
@@ -170,6 +172,24 @@ export function nextRelease({ tag, messages }: History): NextRelease {
   return { base, bump, version: bumpVersion(base, bump) };
 }
 
+/** Reads the release tag reachable from HEAD and the commit messages since it through `git`. */
+export function readHistory(git: (args: string[]) => string = runGit): History {
+  if (git(["rev-parse", "--is-shallow-repository"]).trim() === "true") {
+    throw new Error("shallow clone: release tags and history need fetch-depth: 0");
+  }
+  const tag = latestReleaseTag(git(["tag", "--merged", "HEAD", "--list", "v*"]).split(/\s+/));
+  if (tag === undefined) return { tag, messages: [] };
+  const messages = git(["log", "--format=%B%x00", `${tag}..HEAD`])
+    .split("\0")
+    .map((message) => message.trim())
+    .filter((message) => message !== "");
+  return { tag, messages };
+}
+
+function runGit(args: string[]): string {
+  return execFileSync("git", args, { encoding: "utf8" });
+}
+
 /** Parses an `npm view --json` result; undefined for E404 (no such package or version). */
 export function parseView(result: { status: number | null; stdout: string }): unknown {
   const output = result.stdout.trim();
@@ -215,24 +235,46 @@ function main([command]: string[]): number {
     console.log(`release-check: npm ${version} >= ${MIN_NPM}`);
     return 0;
   }
-  if (command === "plan") {
-    const { name, version } = JSON.parse(
-      readFileSync(new URL("../package.json", import.meta.url), "utf8"),
+  if (command === "next") {
+    const next = nextRelease(readHistory());
+    console.log(
+      "version" in next
+        ? `release-check: next version ${next.version} (${next.bump} since v${next.base})`
+        : `release-check: ${next.reason}; nothing to release`,
     );
-    const result = plan(version, registryState(name, version));
-    const outputs = `publish=${result.publish}\nversion=${result.version}\ntag=${result.tag}\n`;
+    return 0;
+  }
+  if (command === "plan") {
+    const { name } = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
+    const next = nextRelease(readHistory());
+    let result: Plan | undefined;
+    let summary: string;
+    if (!("version" in next)) {
+      summary = `${next.reason}; nothing to release`;
+    } else {
+      result = plan(next.version, registryState(name, next.version));
+      if (result.publish) {
+        summary = `publishing ${name}@${result.version} (${next.bump} since v${next.base}) with dist-tag ${result.tag}`;
+      } else {
+        const v = result.version;
+        summary =
+          `v${v} is on npm but no tag v${v} is reachable: create it on the published commit ` +
+          `(npm view ${name}@${v} gitHead) with gh release create v${v} --target <sha>`;
+        console.log(`::warning::${summary}`);
+      }
+    }
+    const outputs = result?.publish
+      ? `publish=true\nversion=${result.version}\ntag=${result.tag}\n`
+      : "publish=false\nversion=\ntag=\n";
     process.stdout.write(outputs);
     if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, outputs);
-    const summary = result.publish
-      ? `publishing ${name}@${version} with dist-tag ${result.tag}`
-      : `${result.reason}; nothing to publish`;
     console.log(`release-check: ${summary}`);
     if (process.env.GITHUB_STEP_SUMMARY) {
       appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${summary}\n`);
     }
     return 0;
   }
-  console.error("usage: node scripts/release-check.ts npm | plan");
+  console.error("usage: node scripts/release-check.ts npm | next | plan");
   return 2;
 }
 

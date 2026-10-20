@@ -1,4 +1,6 @@
-# Publishes to npm through trusted publishing (OIDC) when main has a version that is not on npm yet.
+# Publishes to npm through trusted publishing (OIDC) on every push to main that has releasing commits.
+# The version is computed from v* tags and Conventional Commits and stamped into this checkout only
+# (docs/decisions/0077); the release job tags it as vX.Y.Z on the pushed commit.
 # npm validates this filename: renaming it breaks publishing (docs/decisions/0049, RELEASING.md).
 name: Publish
 
@@ -6,7 +8,8 @@ on:
   push:
     branches: [main]
 
-# Serialise publishes and never cancel one mid-way.
+# Serialise publishes and never cancel one mid-way. Workflow-level, so the next run starts only after
+# this run's release job created the tag its version is computed from.
 concurrency:
   group: publish
   cancel-in-progress: false
@@ -27,6 +30,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+          fetch-tags: true
           persist-credentials: false
       # pnpm comes from "packageManager" in package.json; Node is the major pinned in mise.toml.
       - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
@@ -47,6 +51,12 @@ jobs:
         run: node scripts/release-check.ts plan
       - if: steps.plan.outputs.publish == 'true'
         run: pnpm install --frozen-lockfile
+      # No commit or tag: package.json on main keeps its placeholder version.
+      - name: Stamp the release version (this checkout only)
+        if: steps.plan.outputs.publish == 'true'
+        env:
+          VERSION: ${{ steps.plan.outputs.version }}
+        run: npm version "$VERSION" --no-git-tag-version --ignore-scripts
       - if: steps.plan.outputs.publish == 'true'
         run: pnpm check
       - if: steps.plan.outputs.publish == 'true'
