@@ -23,6 +23,7 @@ import * as read from "./read.ts";
 import * as rm from "./rm.ts";
 import * as rollback from "./rollback.ts";
 import { runServe } from "./serve.ts";
+import * as token from "./token.ts";
 
 type Command = {
   name: string;
@@ -54,6 +55,7 @@ const commands: readonly Command[] = [
   command("rm", "Delete an artifact and all its versions", rm),
   command("init", "Add the agent instructions to CLAUDE.md / AGENTS.md", init),
   command("mcp", "stdio MCP bridge to the running server", mcp),
+  command("token", "Manage API tokens of an AWS deployment", token),
 ];
 
 function synopsis(command: Command): string {
