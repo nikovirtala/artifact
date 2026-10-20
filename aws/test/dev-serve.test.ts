@@ -94,6 +94,6 @@ describe("pnpm --filter aws dev:serve", () => {
   it("delegates every other command to the normal CLI", async () => {
     const run = await runCli(["--version"]);
     assert.equal(run.status, 0);
-    assert.match(run.stdout.toString(), /^\d+\.\d+\.\d+\n$/);
+    assert.match(run.stdout.toString(), /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?\n$/);
   });
 });

@@ -1,6 +1,6 @@
 {
   "name": "@nikovirtala/artifact",
-  "version": "1.0.0",
+  "version": "0.0.0-development",
   "description": "Local server that hosts HTML artifacts at stable URLs with immutable versions and live reload",
   "license": "MIT",
   "keywords": [
@@ -59,7 +59,7 @@
     "clean": "node scripts/clean.ts",
     "bundle": "node scripts/bundle-assets.ts",
     "build": "pnpm clean && tsc -p tsconfig.build.json && tsc -p tsconfig.cdk.json && node scripts/fix-dts.ts && node scripts/copy-assets.ts && pnpm bundle",
-    "prepublishOnly": "pnpm check && pnpm build"
+    "prepublishOnly": "node scripts/release-check.ts guard && pnpm check && pnpm build"
   },
   "devDependencies": {
     "@aws-sdk/client-s3": "3.1152.0",

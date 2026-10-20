@@ -5,8 +5,18 @@
 //                                        (git only, no npm)
 //   node scripts/release-check.ts plan   whether that version needs publishing;
 //                                        writes publish, version and tag to $GITHUB_OUTPUT
+//   node scripts/release-check.ts guard  fails if package.json holds the placeholder version
+//                                        (prepublishOnly, so a manual publish cannot ship it)
 import { execFileSync, spawnSync } from "node:child_process";
 import { appendFileSync, readFileSync } from "node:fs";
+
+/** The version package.json holds on main; CI stamps the real one into its checkout. */
+export const PLACEHOLDER_VERSION = "0.0.0-development";
+
+/** Whether `version` is the placeholder rather than a release. */
+export function isPlaceholder(version: string): boolean {
+  return version === PLACEHOLDER_VERSION;
+}
 
 /** Trusted publishing needs npm 11.5.1. */
 export const MIN_NPM = "11.5.1";
@@ -274,7 +284,19 @@ function main([command]: string[]): number {
     }
     return 0;
   }
-  console.error("usage: node scripts/release-check.ts npm | next | plan");
+  if (command === "guard") {
+    const { version } = JSON.parse(
+      readFileSync(new URL("../package.json", import.meta.url), "utf8"),
+    );
+    if (isPlaceholder(version)) {
+      console.error(
+        "release-check: package.json version is the placeholder; releases publish from CI (RELEASING.md)",
+      );
+      return 1;
+    }
+    return 0;
+  }
+  console.error("usage: node scripts/release-check.ts npm | next | plan | guard");
   return 2;
 }
 

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 import {
   atLeast,
@@ -7,8 +8,10 @@ import {
   compareSemver,
   distTag,
   highestBump,
+  isPlaceholder,
   latestReleaseTag,
   nextRelease,
+  PLACEHOLDER_VERSION,
   parseSemver,
   parseView,
   plan,
@@ -302,5 +305,23 @@ describe("readHistory", () => {
     assert.deepEqual(readHistory(git), { tag: undefined, messages: [] });
     assert.equal(calls.length, 2);
     assert.throws(() => nextRelease(readHistory(git)), /no release tag/);
+  });
+});
+
+describe("isPlaceholder", () => {
+  it("recognises only the development placeholder", () => {
+    assert.equal(isPlaceholder(PLACEHOLDER_VERSION), true);
+    assert.equal(isPlaceholder("0.0.0-development"), true);
+    assert.equal(isPlaceholder("1.1.0"), false);
+    assert.equal(isPlaceholder("0.0.0"), false);
+  });
+  it("is valid semver, so package.json holds valid semver on main and when stamped", () => {
+    // CI stamps the release version before `pnpm check`, so package.json is
+    // only required to be valid semver here, not to equal the placeholder.
+    assert.ok(parseSemver(PLACEHOLDER_VERSION));
+    const { version } = JSON.parse(
+      readFileSync(new URL("../../package.json", import.meta.url), "utf8"),
+    );
+    assert.ok(parseSemver(version), `package.json version ${version} is not semver`);
   });
 });
