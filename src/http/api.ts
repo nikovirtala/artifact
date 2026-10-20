@@ -11,6 +11,7 @@ import {
   PublishBodySchema,
   RollbackBodySchema,
 } from "../schemas.ts";
+import { PACKAGE_VERSION } from "../version.ts";
 import type { ControlAppDeps } from "./control-app.ts";
 import { badRequest, httpError, jsonError } from "./errors.ts";
 import { type AppEnv, browserGuard, parseIfMatch, tokenGuard } from "./guards.ts";
@@ -121,6 +122,9 @@ export function createApi(deps: ControlAppDeps): Hono<AppEnv> {
         ),
     }),
   );
+
+  // The server version, for the CLI's compatibility warning (docs/decisions/0064).
+  api.get("/", (c) => c.json({ version: PACKAGE_VERSION }, 200, { "Cache-Control": "no-store" }));
 
   api.get("/artifacts", async (c) => {
     const limit = queryInt(c, "limit", maxListLimit);

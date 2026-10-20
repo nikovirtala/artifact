@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { createMemoryNotifier } from "../../src/adapters/memory-notifier.ts";
 import { type AppConfig, createApp } from "../../src/http/app.ts";
+import { PACKAGE_VERSION } from "../../src/version.ts";
 import { harness } from "../support/fakes.ts";
 
 const PORT = 4400;
@@ -520,5 +521,29 @@ describe("projects on the API", () => {
     const repeated = await call("GET", "/api/artifacts?project=a/b&project=a/b");
     assert.equal(repeated.status, 400);
     assert.equal((await repeated.json()).error, "bad_request");
+  });
+});
+
+describe("GET /api", () => {
+  it("returns the server version with no-store (docs/decisions/0064)", async () => {
+    const { call } = setup();
+    const res = await call("GET", "/api");
+    assert.equal(res.status, 200);
+    assert.equal(res.headers.get("cache-control"), "no-store");
+    assert.deepEqual(await res.json(), { version: PACKAGE_VERSION });
+  });
+
+  it("is behind the token and browser guards", async () => {
+    const { call } = setup({ token: "s3cret" });
+    assert.equal((await call("GET", "/api")).status, 401);
+    assert.equal(
+      (await call("GET", "/api", undefined, { authorization: "Bearer s3cret" })).status,
+      200,
+    );
+    const browser = await call("GET", "/api", undefined, {
+      authorization: "Bearer s3cret",
+      origin: "https://example.com",
+    });
+    assert.equal(browser.status, 403);
   });
 });

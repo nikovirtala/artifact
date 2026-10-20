@@ -67,3 +67,4 @@ One short file per decision, numbered in order. Status is **Accepted** (in effec
 | [0061](0061-list-cost-and-index-threshold.md) | `list` on S3: one LIST page per 1,000 artifacts plus one `GET meta.json` per artifact; index threshold | Accepted |
 | [0062](0062-s3-dev-harness.md) | Dev harness: `pnpm --filter aws dev:serve` runs `artifact serve` on S3 stores | Accepted |
 | [0063](0063-test-resources-stack.md) | Test resources stack: contract bucket + GitHub OIDC role | Accepted |
+| [0064](0064-api-version-route.md) | `GET /api` returns the server version; the CLI warns on a major mismatch | Accepted |
