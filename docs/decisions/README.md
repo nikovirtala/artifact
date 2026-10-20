@@ -52,7 +52,7 @@ One short file per decision, numbered in order. Status is **Accepted** (in effec
 | [0046](0046-artifact-init.md) | `artifact init`: snippet block, project pin, settings merge | Accepted |
 | [0047](0047-orphan-sweep.md) | Orphan sweep on startup; `lastModified` in `BlobStore.list` | Accepted |
 | [0048](0048-packaging-and-pack-test.md) | Packaging and the `test:pack` tarball test | Accepted |
-| [0049](0049-release-via-trusted-publishing.md) | Release on merge via GitHub Actions trusted publishing | Accepted |
+| [0049](0049-release-via-trusted-publishing.md) | Release on merge via GitHub Actions trusted publishing | Accepted; versioning superseded by [0077](0077-version-from-tags.md) |
 | [0050](0050-v2-import-boundaries.md) | Import boundaries for `src/cdk/`, `src/runtime/`, `aws-cdk-lib` and `@aws-sdk/*` | Accepted |
 | [0051](0051-injectable-limits.md) | Injectable limits owned by the service; body cap 1.5× with an override | Accepted |
 | [0052](0052-version-pruning.md) | `pruneVersions`: keepLast AND olderThan; current and latest kept; pointer CAS first | Accepted |
@@ -80,3 +80,4 @@ One short file per decision, numbered in order. Status is **Accepted** (in effec
 | [0074](0074-pack-test-cdk-app.md) | Pack test: optional peers, tarball CDK app (TS 5.9.3 `target: esnext` without `skipLibCheck`, CloudFormation Validate clean); CI synth without AWS access | Accepted |
 | [0075](0075-examples-personal.md) | `examples/personal`: stages, DNS stack, strong cross-region references (experimental; `weak` rejected), owners from the environment, source-condition synth, snapshot | Accepted |
 | [0076](0076-smoke-and-deploy-guide.md) | Smoke and retention scripts, CloudShell deploy guide, and the runtime SDK log line (V2 residual) | Accepted |
+| [0077](0077-version-from-tags.md) | Version releases from git tags and Conventional Commits | Accepted |
