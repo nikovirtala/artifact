@@ -41,11 +41,12 @@
     "lint": "biome check .",
     "format": "biome check --write .",
     "test": "node --test \"test/**/*.test.ts\"",
-    "check": "pnpm typecheck && pnpm lint && pnpm test && pnpm --filter aws check",
+    "check": "pnpm typecheck && pnpm lint && pnpm bundle && pnpm test && pnpm --filter aws check",
     "test:pack": "node scripts/pack-test.ts",
     "test:s3": "pnpm --filter aws test:s3",
     "clean": "node scripts/clean.ts",
-    "build": "pnpm clean && tsc -p tsconfig.build.json && node scripts/copy-assets.ts",
+    "bundle": "node scripts/bundle-assets.ts",
+    "build": "pnpm clean && tsc -p tsconfig.build.json && node scripts/copy-assets.ts && pnpm bundle",
     "prepublishOnly": "pnpm check && pnpm build"
   },
   "devDependencies": {
@@ -53,6 +54,7 @@
     "@aws-sdk/client-secrets-manager": "3.1152.0",
     "@biomejs/biome": "2.5.15",
     "@types/node": "^24.19.2",
+    "esbuild": "0.28.2",
     "fast-check": "4.10.2",
     "typescript": "7.0.2"
   },

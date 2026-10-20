@@ -6,6 +6,7 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync }
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
+import { TS_SPECIFIER } from "./lib/ts-specifier.ts";
 
 const repo = fileURLToPath(new URL("..", import.meta.url));
 const run = (command: string, args: string[], cwd: string): string =>
@@ -72,12 +73,11 @@ try {
   console.log("pack-test: v1 dependencies only; no dist/runtime, @aws-sdk or aws-cdk-lib");
 
   const dist = join(app, "node_modules", "@nikovirtala", "artifact", "dist");
-  const tsImport = /(?:from\s*|import\s*\(\s*)["'][^"']+\.ts["']/;
   // Every file, not only .js: anything shipped that names a .ts module is a leftover.
   const offenders = readdirSync(dist, { recursive: true, withFileTypes: true })
     .filter((entry) => entry.isFile())
     .map((entry) => join(entry.parentPath, entry.name))
-    .filter((file) => tsImport.test(readFileSync(file, "utf8")))
+    .filter((file) => TS_SPECIFIER.test(readFileSync(file, "utf8")))
     .map((file) => relative(dist, file));
   if (offenders.length > 0) {
     throw new Error(`pack-test: .ts imports in installed dist: ${offenders.join(", ")}`);
