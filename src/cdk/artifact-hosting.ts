@@ -1,13 +1,47 @@
 // `ArtifactHosting` (docs/decisions/0071): artifact hosting on AWS under one construct scope. No
 // physical names, accounts or Regions, so two instances in one stack or account never collide;
 // safe defaults (private bucket, retained data, publish only through IAM).
-import { CfnOutput, Duration, RemovalPolicy } from "aws-cdk-lib";
-import type { ICertificate } from "aws-cdk-lib/aws-certificatemanager";
-import type { RetentionDays } from "aws-cdk-lib/aws-logs";
-import type { IHostedZone } from "aws-cdk-lib/aws-route53";
+import { CfnOutput, Duration, RemovalPolicy, SecretValue, Stack } from "aws-cdk-lib";
+import { AccessLogFormat } from "aws-cdk-lib/aws-apigateway";
+import {
+  DomainName,
+  EndpointType,
+  HttpApi,
+  type HttpMethod,
+  HttpStage,
+  LogGroupLogDestination,
+  PayloadFormatVersion,
+  SecurityPolicy,
+} from "aws-cdk-lib/aws-apigatewayv2";
+import { HttpLambdaIntegration } from "aws-cdk-lib/aws-apigatewayv2-integrations";
+import {
+  Certificate,
+  CertificateValidation,
+  type ICertificate,
+} from "aws-cdk-lib/aws-certificatemanager";
+import {
+  Alarm,
+  ComparisonOperator,
+  type IMetric,
+  TreatMissingData,
+} from "aws-cdk-lib/aws-cloudwatch";
+import { SnsAction } from "aws-cdk-lib/aws-cloudwatch-actions";
+import { PolicyStatement, Role, ServicePrincipal } from "aws-cdk-lib/aws-iam";
+import { Architecture, Code, Function as LambdaFunction, Runtime } from "aws-cdk-lib/aws-lambda";
+import { LogGroup, RetentionDays } from "aws-cdk-lib/aws-logs";
+import { ARecord, type IHostedZone, RecordTarget } from "aws-cdk-lib/aws-route53";
+import { ApiGatewayv2DomainProperties } from "aws-cdk-lib/aws-route53-targets";
 import { BlockPublicAccess, Bucket, BucketEncryption, ObjectOwnership } from "aws-cdk-lib/aws-s3";
+import { Schedule, ScheduleExpression, ScheduleTargetInput } from "aws-cdk-lib/aws-scheduler";
+import { LambdaInvoke } from "aws-cdk-lib/aws-scheduler-targets";
+import { Secret } from "aws-cdk-lib/aws-secretsmanager";
+import { Topic } from "aws-cdk-lib/aws-sns";
+import { EmailSubscription } from "aws-cdk-lib/aws-sns-subscriptions";
 import { Construct } from "constructs";
+import { assetDir } from "./assets.ts";
+import { controlEnvironment, sweepEnvironment } from "./env.ts";
 import { ArtifactIdentity, type ArtifactIdentityBinding } from "./identity.ts";
+import { CONTROL_ROUTE_KEYS } from "./routes.ts";
 import {
   checkAlarmEmail,
   checkApiHost,
@@ -26,7 +60,7 @@ export interface ArtifactViewDomain {
   readonly name: string;
   /** Holds `name`; must carry its `zoneName`. The API's records go here by default. */
   readonly hostedZone: IHostedZone;
-  /** The us-east-1 certificate for CloudFront (`ArtifactCertificate`); unused until M10. */
+  /** The view certificate for CloudFront (`ArtifactCertificate`); unused until M10. */
   readonly certificate?: ICertificate;
 }
 
@@ -80,6 +114,7 @@ type Config = {
   limits: ResolvedLimits;
   retention: ResolvedRetention;
   throttle: { rateLimit: number; burstLimit: number };
+  logRetention: RetentionDays;
   alarmEmail?: string;
 };
 
@@ -109,9 +144,32 @@ function validate(props: ArtifactHostingProps): Config {
     limits: resolveLimits(props.limits),
     retention: resolveRetention(props.dataRetention),
     throttle: resolveThrottle(props.throttle),
+    logRetention: props.logRetention ?? RetentionDays.ONE_MONTH,
     alarmEmail: checkAlarmEmail(props.alarmEmail),
   };
 }
+
+/** The access log of the HTTP API: named `$context` fields only, never a header (A5). */
+const ACCESS_LOG_FORMAT = JSON.stringify({
+  requestId: "$context.requestId",
+  time: "$context.requestTimeEpoch",
+  method: "$context.httpMethod",
+  path: "$context.path",
+  routeKey: "$context.routeKey",
+  protocol: "$context.protocol",
+  status: "$context.status",
+  responseLength: "$context.responseLength",
+  latency: "$context.responseLatency",
+  integrationLatency: "$context.integrationLatency",
+  integrationStatus: "$context.integrationStatus",
+  integrationError: "$context.integrationErrorMessage",
+  error: "$context.error.message",
+  sourceIp: "$context.identity.sourceIp",
+  domain: "$context.domainName",
+});
+
+/** The empty token list (docs/decisions/0065); not a secret. */
+const EMPTY_TOKEN_SECRET = '{"version":1,"tokens":[]}';
 
 export class ArtifactHosting extends Construct {
   /** `https://<apiDomain.name>`: the CLI's `--server` and the MCP base URL. */
@@ -119,9 +177,24 @@ export class ArtifactHosting extends Construct {
   /** `https://<viewDomain.name>/`: the gallery (served from M10). */
   readonly viewUrl: string;
   readonly bucket: Bucket;
+  /** The SHA-256 hashes of the API tokens (`artifact token`). */
+  readonly tokenSecret: Secret;
+  readonly httpApi: HttpApi;
+  readonly apiDomainName: DomainName;
+  readonly apiCertificate: ICertificate;
+  readonly controlFunction: LambdaFunction;
+  readonly sweepFunction: LambdaFunction;
+  /** Assumed by EventBridge Scheduler to invoke the sweep function. */
+  readonly schedulerRole: Role;
+  readonly sweepSchedule: Schedule;
+  /** Only with `dataRetention.versions`. */
+  readonly pruneSchedule?: Schedule;
+  readonly accessLogGroup: LogGroup;
   readonly identity: ArtifactIdentityBinding;
   /** `viewDomain.certificate`, kept for M10's distribution. */
   readonly viewCertificate?: ICertificate;
+  /** Only with `alarmEmail`. */
+  readonly alarmTopic?: Topic;
 
   constructor(scope: Construct, id: string, props: ArtifactHostingProps) {
     super(scope, id);
@@ -145,7 +218,185 @@ export class ArtifactHosting extends Construct {
 
     this.identity = props.identity._bind(this);
 
-    new CfnOutput(this, "BucketName", { value: this.bucket.bucketName });
-    new CfnOutput(this, "ViewUrl", { value: this.viewUrl });
+    // A CloudFormation update of this resource may re-apply SecretString and wipe the stored
+    // tokens (0065): keep it exactly as it is; a construct test pins it.
+    this.tokenSecret = new Secret(this, "TokenSecret", {
+      secretStringValue: SecretValue.unsafePlainText(EMPTY_TOKEN_SECRET),
+      removalPolicy: RemovalPolicy.DESTROY,
+    });
+
+    const logGroup = (name: string) =>
+      new LogGroup(this, name, {
+        retention: config.logRetention,
+        removalPolicy: RemovalPolicy.DESTROY,
+      });
+    // Explicit statements, no grant*: those add bucket-level reads, tagging and more (0070).
+    const functionRole = (name: string, group: LogGroup, extra: PolicyStatement[]) => {
+      const role = new Role(this, name, {
+        assumedBy: new ServicePrincipal("lambda.amazonaws.com"),
+      });
+      for (const statement of [
+        new PolicyStatement({
+          actions: ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"],
+          resources: [this.bucket.arnForObjects("*")],
+        }),
+        new PolicyStatement({ actions: ["s3:ListBucket"], resources: [this.bucket.bucketArn] }),
+        new PolicyStatement({
+          actions: ["logs:CreateLogStream", "logs:PutLogEvents"],
+          resources: [group.logGroupArn],
+        }),
+        ...extra,
+      ]) {
+        role.addToPrincipalPolicy(statement);
+      }
+      return role;
+    };
+
+    const controlLogGroup = logGroup("ControlLogGroup");
+    this.controlFunction = new LambdaFunction(this, "ControlFunction", {
+      runtime: Runtime.NODEJS_24_X,
+      architecture: Architecture.ARM_64,
+      memorySize: 1024,
+      timeout: Duration.seconds(30),
+      code: Code.fromAsset(assetDir("control")),
+      handler: "index.handler",
+      logGroup: controlLogGroup,
+      role: functionRole("ControlRole", controlLogGroup, [
+        new PolicyStatement({
+          actions: ["secretsmanager:GetSecretValue"],
+          resources: [this.tokenSecret.secretArn],
+        }),
+      ]),
+      environment: controlEnvironment({
+        bucket: this.bucket.bucketName,
+        viewDomain: config.viewDomain,
+        tokenSecretArn: this.tokenSecret.secretArn,
+        limits: config.limits,
+      }),
+    });
+
+    const sweepLogGroup = logGroup("SweepLogGroup");
+    this.sweepFunction = new LambdaFunction(this, "SweepFunction", {
+      runtime: Runtime.NODEJS_24_X,
+      architecture: Architecture.ARM_64,
+      memorySize: 512,
+      timeout: Duration.minutes(5),
+      code: Code.fromAsset(assetDir("sweep")),
+      handler: "index.handler",
+      logGroup: sweepLogGroup,
+      role: functionRole("SweepRole", sweepLogGroup, []),
+      environment: sweepEnvironment({ bucket: this.bucket.bucketName, limits: config.limits }),
+    });
+
+    this.apiCertificate =
+      props.apiDomain.certificate ??
+      new Certificate(this, "ApiCertificate", {
+        domainName: config.apiDomain,
+        validation: CertificateValidation.fromDns(config.apiZone),
+      });
+    this.apiDomainName = new DomainName(this, "ApiDomainName", {
+      domainName: config.apiDomain,
+      certificate: this.apiCertificate,
+      endpointType: EndpointType.REGIONAL,
+      securityPolicy: SecurityPolicy.TLS_1_2,
+    });
+    new ARecord(this, "ApiAliasRecord", {
+      zone: config.apiZone,
+      recordName: config.apiDomain,
+      target: RecordTarget.fromAlias(
+        new ApiGatewayv2DomainProperties(
+          this.apiDomainName.regionalDomainName,
+          this.apiDomainName.regionalHostedZoneId,
+        ),
+      ),
+    });
+
+    // The custom domain is the only way in, so the control app only ever sees the API host.
+    this.httpApi = new HttpApi(this, "HttpApi", {
+      createDefaultStage: false,
+      disableExecuteApiEndpoint: true,
+    });
+    const integration = new HttpLambdaIntegration("ControlIntegration", this.controlFunction, {
+      payloadFormatVersion: PayloadFormatVersion.VERSION_2_0,
+    });
+    for (const key of Object.values(CONTROL_ROUTE_KEYS)) {
+      const [method, path] = key.split(" ");
+      this.httpApi.addRoutes({ path, methods: [method as HttpMethod], integration });
+    }
+    this.accessLogGroup = logGroup("AccessLogGroup");
+    new HttpStage(this, "DefaultStage", {
+      httpApi: this.httpApi,
+      stageName: "$default",
+      autoDeploy: true,
+      throttle: config.throttle,
+      // Mapped at the root, so the event's rawPath is the full path (A4).
+      domainMapping: { domainName: this.apiDomainName },
+      accessLogSettings: {
+        destination: new LogGroupLogDestination(this.accessLogGroup),
+        format: AccessLogFormat.custom(ACCESS_LOG_FORMAT),
+      },
+    });
+
+    this.schedulerRole = new Role(this, "SchedulerRole", {
+      assumedBy: new ServicePrincipal("scheduler.amazonaws.com", {
+        conditions: { StringEquals: { "aws:SourceAccount": Stack.of(this).account } },
+      }),
+    });
+    const daily = (name: string, input: Record<string, unknown>) =>
+      new Schedule(this, name, {
+        schedule: ScheduleExpression.rate(Duration.days(1)),
+        target: new LambdaInvoke(this.sweepFunction, {
+          role: this.schedulerRole,
+          input: ScheduleTargetInput.fromObject(input),
+          retryAttempts: 2,
+          maxEventAge: Duration.hours(1),
+        }),
+      });
+    this.sweepSchedule = daily("SweepSchedule", { task: "sweep" });
+    const { versions } = config.retention;
+    if (versions !== undefined) {
+      this.pruneSchedule = daily("PruneSchedule", { task: "prune", ...versions });
+    }
+
+    if (config.alarmEmail !== undefined) {
+      this.alarmTopic = new Topic(this, "AlarmTopic");
+      this.alarmTopic.addSubscription(new EmailSubscription(config.alarmEmail));
+      const action = new SnsAction(this.alarmTopic);
+      const alarm = (name: string, metric: IMetric, threshold: number) =>
+        new Alarm(this, name, {
+          metric,
+          threshold,
+          evaluationPeriods: 1,
+          comparisonOperator: ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+          treatMissingData: TreatMissingData.NOT_BREACHING,
+        }).addAlarmAction(action);
+      alarm(
+        "ControlErrorsAlarm",
+        this.controlFunction.metricErrors({ period: Duration.minutes(5), statistic: "Sum" }),
+        1,
+      );
+      alarm(
+        "SweepErrorsAlarm",
+        this.sweepFunction.metricErrors({ period: Duration.hours(1), statistic: "Sum" }),
+        1,
+      );
+      alarm(
+        "ApiServerErrorsAlarm",
+        this.httpApi.metricServerError({ period: Duration.minutes(5), statistic: "Sum" }),
+        5,
+      );
+    }
+
+    const output = (name: string, value: string) => new CfnOutput(this, name, { value });
+    output("ApiUrl", this.apiUrl);
+    output("ViewUrl", this.viewUrl);
+    output("TokenSecretArn", this.tokenSecret.secretArn);
+    output("BucketName", this.bucket.bucketName);
+    output("ControlLogGroupName", controlLogGroup.logGroupName);
+    output("AccessLogGroupName", this.accessLogGroup.logGroupName);
+    output("SweepFunctionName", this.sweepFunction.functionName);
+    if (this.pruneSchedule !== undefined) {
+      output("PruneScheduleName", this.pruneSchedule.scheduleName);
+    }
   }
 }

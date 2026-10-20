@@ -74,3 +74,5 @@ One short file per decision, numbered in order. Status is **Accepted** (in effec
 | [0068](0068-prebuilt-lambda-assets.md) | Prebuilt Lambda assets: esbuild bundles in `dist/assets`, runtime SDK external (A14), version inlined, pnpm `allowBuilds` | Accepted |
 | [0069](0069-cognito-identity-m9.md) | Cognito identity in M9: the user pool and validated owners; users arrive with the M10 login | Accepted |
 | [0070](0070-bucket-and-iam.md) | Bucket settings, bucket policy and least-privilege IAM for the control, sweep and scheduler roles | Accepted |
+| [0071](0071-artifact-hosting-api.md) | `ArtifactHosting` API, the M9 subset of the M10/M11 props, and the construct-scope rule with its auto-delete exception | Accepted |
+| [0072](0072-http-api-control-plane.md) | Control plane on an HTTP API: Regional custom domain, three routes, throttling, explicit access-log fields (V4, V5) | Accepted |

@@ -9,4 +9,5 @@ export {
 } from "./artifact-hosting.ts";
 export { ArtifactCertificate, type ArtifactCertificateProps } from "./certificate.ts";
 export { ArtifactIdentity, type ArtifactIdentityBinding } from "./identity.ts";
+export { CONTROL_ROUTE_KEYS } from "./routes.ts";
 export { AWS_LIMIT_CEILINGS, AWS_LIMIT_DEFAULTS } from "./validate.ts";
