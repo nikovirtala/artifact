@@ -2,6 +2,7 @@
 // Sec-Fetch-Site, so the API's browser guard (0037) lets it through; never add them.
 import { type Env, envValue } from "../config.ts";
 import { type CliContext, CliError, UsageError } from "./output.ts";
+import { checkServerVersion, isLoopbackServer } from "./version-check.ts";
 
 export const DEFAULT_SERVER = "http://localhost:4400";
 
@@ -48,10 +49,21 @@ export function networkCause(error: unknown): string {
   return (error as Error).message;
 }
 
-export function createClient(options: { server: string; token?: string; fetch?: Fetch }): Client {
-  const { server, token, fetch: fetchImpl = globalThis.fetch } = options;
+export function createClient(options: {
+  server: string;
+  token?: string;
+  fetch?: Fetch;
+  /** Runs once, before the client's first request (the version check, 0064); never throws. */
+  beforeFirstRequest?: () => Promise<void>;
+}): Client {
+  const { server, token, fetch: fetchImpl = globalThis.fetch, beforeFirstRequest } = options;
+  let first: Promise<void> | undefined;
 
   const send = async (url: string, init: RequestInit): Promise<Response> => {
+    if (beforeFirstRequest) {
+      first ??= beforeFirstRequest();
+      await first;
+    }
     let response: Response;
     try {
       response = await fetchImpl(url, init);
@@ -100,11 +112,29 @@ export function createClient(options: { server: string; token?: string; fetch?: 
   };
 }
 
-/** A client for `ctx`: the server from `--server` or the env, the token from `ARTIFACT_TOKEN`. */
-export function connect(ctx: CliContext, serverFlag: string | undefined): Client {
+/**
+ * A client for `ctx`: the server from `--server` or the env, the token from `ARTIFACT_TOKEN`.
+ * A command makes one client, so a remote server's version is checked once per process (0064);
+ * loopback servers are never checked.
+ */
+export function connect(
+  ctx: CliContext,
+  serverFlag: string | undefined,
+  options: { fetch?: Fetch } = {},
+): Client {
+  const server = resolveServer(serverFlag, ctx.env);
+  const token = envValue(ctx.env, "ARTIFACT_TOKEN");
+  const { fetch } = options;
   return createClient({
-    server: resolveServer(serverFlag, ctx.env),
-    token: envValue(ctx.env, "ARTIFACT_TOKEN"),
+    server,
+    token,
+    fetch,
+    beforeFirstRequest: isLoopbackServer(server)
+      ? undefined
+      : async () => {
+          const warning = await checkServerVersion({ server, token, fetch });
+          if (warning !== undefined) ctx.stderr.write(`${warning}\n`);
+        },
   });
 }
 
