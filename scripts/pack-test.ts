@@ -27,6 +27,10 @@ try {
   const required = [
     "package/dist/cli/main.js",
     "package/dist/http/reload-client.js",
+    "package/dist/cdk/index.js",
+    "package/dist/cdk/index.d.ts",
+    "package/dist/assets/control/index.mjs",
+    "package/dist/assets/sweep/index.mjs",
     "package/README.md",
     "package/LICENSE",
     "package/package.json",
@@ -37,23 +41,33 @@ try {
       e.startsWith("package/src/") ||
       e.startsWith("package/test/") ||
       e.startsWith("package/dist/runtime/") ||
-      e.endsWith(".d.ts"),
+      (e.endsWith(".d.ts") && !e.startsWith("package/dist/cdk/")),
   );
   if (missing.length > 0) throw new Error(`pack-test: tarball lacks ${missing.join(", ")}`);
   if (forbidden.length > 0) throw new Error(`pack-test: tarball ships ${forbidden.join(", ")}`);
 
-  // The AWS code stays out of the package: v1 runtime dependencies only, no peers yet (0059).
+  // The AWS code stays out of the runtime dependencies: the v1 four only (0059). The construct's
+  // packages and the token command's SDK are optional peers (0073; M8 asserted no peers).
   const packed = JSON.parse(run("tar", ["-xzOf", tarball, "package/package.json"], tmp)) as {
     dependencies?: Record<string, string>;
     peerDependencies?: Record<string, string>;
+    peerDependenciesMeta?: Record<string, { optional?: boolean }>;
   };
   const dependencies = Object.keys(packed.dependencies ?? {}).sort();
   const v1Dependencies = ["@hono/node-server", "@modelcontextprotocol/sdk", "hono", "zod"];
   if (dependencies.join() !== v1Dependencies.join()) {
     throw new Error(`pack-test: dependencies are ${dependencies.join(", ")}`);
   }
-  if (packed.peerDependencies !== undefined) {
-    throw new Error("pack-test: the package declares peerDependencies");
+  const peers = Object.keys(packed.peerDependencies ?? {}).sort();
+  const optionalPeers = ["@aws-sdk/client-secrets-manager", "aws-cdk-lib", "constructs"];
+  if (peers.join() !== optionalPeers.join()) {
+    throw new Error(`pack-test: peerDependencies are ${peers.join(", ")}`);
+  }
+  const requiredPeers = peers.filter(
+    (name) => packed.peerDependenciesMeta?.[name]?.optional !== true,
+  );
+  if (requiredPeers.length > 0) {
+    throw new Error(`pack-test: peers not optional: ${requiredPeers.join(", ")}`);
   }
 
   const app = join(tmp, "app");
@@ -72,6 +86,17 @@ try {
   }
   console.log("pack-test: v1 dependencies only; no dist/runtime, @aws-sdk or aws-cdk-lib");
 
+  // (a) Without the optional peer, `artifact token` names the install command (0065).
+  const token = spawnSync(
+    join(app, "node_modules", ".bin", "artifact"),
+    ["token", "list", "--secret", "arn:aws:secretsmanager:eu-north-1:000000000000:secret:x-AbCdEf"],
+    { cwd: app, encoding: "utf8" },
+  );
+  if (token.status !== 1 || !token.stderr.includes("npm install @aws-sdk/client-secrets-manager")) {
+    throw new Error(`pack-test: artifact token without the SDK: ${token.status} ${token.stderr}`);
+  }
+  console.log("pack-test: artifact token without the SDK peer names the install command");
+
   const dist = join(app, "node_modules", "@nikovirtala", "artifact", "dist");
   // Every file, not only .js: anything shipped that names a .ts module is a leftover.
   const offenders = readdirSync(dist, { recursive: true, withFileTypes: true })
@@ -82,7 +107,7 @@ try {
   if (offenders.length > 0) {
     throw new Error(`pack-test: .ts imports in installed dist: ${offenders.join(", ")}`);
   }
-  console.log("pack-test: no file in installed dist imports .ts, and the tarball has no .d.ts");
+  console.log("pack-test: no file in installed dist imports .ts; .d.ts only under dist/cdk");
 
   const bin = join(app, "node_modules", ".bin", "artifact");
   console.log(`pack-test: running the e2e suite with ARTIFACT_CLI=${bin}`);
