@@ -70,3 +70,4 @@ One short file per decision, numbered in order. Status is **Accepted** (in effec
 | [0064](0064-api-version-route.md) | `GET /api` returns the server version; the CLI warns on a major mismatch | Accepted |
 | [0065](0065-api-tokens.md) | API tokens: hashed list in Secrets Manager, 5-minute cache, `artifact token` | Accepted |
 | [0066](0066-control-lambda.md) | Control Lambda: Hono on Lambda, owner-decided AWS limits (3 MiB, 4,500,000-byte cap; V3), request-shape log line, cookies stripped before the app; staged uploads recommended next | Accepted |
+| [0067](0067-sweep-and-prune-schedules.md) | Daily sweep and prune schedules; `dataRetention`; prune failures fail the run | Accepted |

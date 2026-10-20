@@ -2,7 +2,7 @@
 // parsed here; errors name the variable and never echo the bucket or the ARN.
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { parseControlEnv } from "../../src/runtime/env.ts";
+import { parseControlEnv, parseSweepEnv } from "../../src/runtime/env.ts";
 
 const ARN = "arn:aws:secretsmanager:eu-north-1:000000000000:secret:x-AbCdEf";
 const LIMITS = '{"maxFileBytes":3145728,"maxPublishBytes":3145728,"maxFiles":500}';
@@ -75,5 +75,21 @@ describe("parseControlEnv", () => {
         "ARTIFACT_MAX_BODY_BYTES",
       );
     }
+  });
+});
+
+describe("parseSweepEnv", () => {
+  it("needs only the bucket and the limits", () => {
+    const env = { ARTIFACT_BUCKET: "b", ARTIFACT_LIMITS: LIMITS };
+    assert.deepEqual(parseSweepEnv(env), {
+      bucket: "b",
+      limits: { maxFileBytes: 3145728, maxPublishBytes: 3145728, maxFiles: 500 },
+    });
+    throwsNaming(() => parseSweepEnv({ ARTIFACT_LIMITS: LIMITS }), "ARTIFACT_BUCKET");
+    throwsNaming(() => parseSweepEnv({ ARTIFACT_BUCKET: "b" }), "ARTIFACT_LIMITS");
+    throwsNaming(
+      () => parseSweepEnv({ ARTIFACT_BUCKET: "b", ARTIFACT_LIMITS: "{}" }),
+      "ARTIFACT_LIMITS",
+    );
   });
 });
