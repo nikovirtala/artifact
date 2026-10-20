@@ -12,6 +12,7 @@ import {
   parseSemver,
   parseView,
   plan,
+  readHistory,
   registryState,
 } from "../../scripts/release-check.ts";
 
@@ -264,5 +265,42 @@ describe("nextRelease", () => {
       bump: "minor",
       version: "1.1.0",
     });
+  });
+});
+
+describe("readHistory", () => {
+  const fakeGit = (responses: { shallow?: string; tags?: string; log?: string }) => {
+    const calls: string[][] = [];
+    const git = (args: string[]) => {
+      calls.push(args);
+      if (args[0] === "rev-parse") return responses.shallow ?? "false\n";
+      if (args[0] === "tag") return responses.tags ?? "";
+      if (args[0] === "log") return responses.log ?? "";
+      throw new Error(`unexpected git ${args.join(" ")}`);
+    };
+    return { calls, git };
+  };
+
+  it("fails in a shallow clone", () => {
+    const { git } = fakeGit({ shallow: "true\n" });
+    assert.throws(() => readHistory(git), /shallow/);
+  });
+  it("reads the messages since the highest release tag", () => {
+    const { calls, git } = fakeGit({
+      tags: "v1.0.0\nv1.10.0\nv1.9.0\nv2.0.0-rc.1\n",
+      log: "feat: a\n\nWhy.\n\0\nfix: b\n\0\n",
+    });
+    assert.deepEqual(readHistory(git), { tag: "v1.10.0", messages: ["feat: a\n\nWhy.", "fix: b"] });
+    assert.deepEqual(calls, [
+      ["rev-parse", "--is-shallow-repository"],
+      ["tag", "--merged", "HEAD", "--list", "v*"],
+      ["log", "--format=%B%x00", "v1.10.0..HEAD"],
+    ]);
+  });
+  it("returns no tag when none is reachable", () => {
+    const { calls, git } = fakeGit({ tags: "\n" });
+    assert.deepEqual(readHistory(git), { tag: undefined, messages: [] });
+    assert.equal(calls.length, 2);
+    assert.throws(() => nextRelease(readHistory(git)), /no release tag/);
   });
 });
