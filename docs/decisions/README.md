@@ -69,3 +69,4 @@ One short file per decision, numbered in order. Status is **Accepted** (in effec
 | [0063](0063-test-resources-stack.md) | Test resources stack: contract bucket + GitHub OIDC role | Accepted |
 | [0064](0064-api-version-route.md) | `GET /api` returns the server version; the CLI warns on a major mismatch | Accepted |
 | [0065](0065-api-tokens.md) | API tokens: hashed list in Secrets Manager, 5-minute cache, `artifact token` | Accepted |
+| [0066](0066-control-lambda.md) | Control Lambda: Hono on Lambda, owner-decided AWS limits (3 MiB, 4,500,000-byte cap; V3), request-shape log line, cookies stripped before the app; staged uploads recommended next | Accepted |
