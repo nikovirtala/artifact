@@ -91,6 +91,85 @@ export function plan(version: string, registry: RegistryState): Plan {
   return { publish: true, version, tag };
 }
 
+export type Bump = "major" | "minor" | "patch";
+
+const BUMPS: Bump[] = ["patch", "minor", "major"];
+
+/** A Conventional Commits header: `type(scope)!: description`. */
+export const HEADER =
+  /^(?<type>[A-Za-z]+)(?:\((?<scope>[^()\r\n]*)\))?(?<bang>!)?: (?<description>.*)$/;
+
+/** The release `message` asks for: breaking → major, feat → minor, fix or perf → patch, else none. */
+export function commitBump(message: string): Bump | undefined {
+  const [header = "", ...rest] = message.split(/\r?\n/);
+  const match = HEADER.exec(header);
+  if (!match?.groups) return undefined;
+  if (match.groups.bang || rest.some((line) => /^BREAKING[ -]CHANGE: /.test(line))) {
+    return "major";
+  }
+  const type = match.groups.type.toLowerCase();
+  if (type === "feat") return "minor";
+  if (type === "fix" || type === "perf") return "patch";
+  return undefined;
+}
+
+/** The largest bump any of `messages` asks for, or undefined if none releases. */
+export function highestBump(messages: string[]): Bump | undefined {
+  let highest: Bump | undefined;
+  for (const message of messages) {
+    const bump = commitBump(message);
+    if (bump && (!highest || BUMPS.indexOf(bump) > BUMPS.indexOf(highest))) highest = bump;
+  }
+  return highest;
+}
+
+/** `version` bumped by `bump`; throws for a version that is not a stable `X.Y.Z`. */
+export function bumpVersion(version: string, bump: Bump): string {
+  const parsed = parseSemver(version);
+  if (!parsed || parsed.prerelease.length > 0 || version.includes("+")) {
+    throw new Error(`${version} is not a stable X.Y.Z version`);
+  }
+  const { major, minor, patch } = parsed;
+  if (bump === "major") return `${major + 1}.0.0`;
+  if (bump === "minor") return `${major}.${minor + 1}.0`;
+  return `${major}.${minor}.${patch + 1}`;
+}
+
+/** The highest stable release tag `vX.Y.Z` among `tags`, or undefined. Prereleases never count. */
+export function latestReleaseTag(tags: string[]): string | undefined {
+  let latest: string | undefined;
+  for (const tag of tags) {
+    if (!/^v\d+\.\d+\.\d+$/.test(tag) || !parseSemver(tag.slice(1))) continue;
+    if (!latest || compareSemver(tag.slice(1), latest.slice(1)) > 0) latest = tag;
+  }
+  return latest;
+}
+
+/** The release tag reachable from HEAD and the commit messages since it. */
+export interface History {
+  tag: string | undefined;
+  messages: string[];
+}
+
+export type NextRelease =
+  | { base: string; bump: Bump; version: string }
+  | { base: string; reason: string };
+
+/** The next version from the latest release tag and the commits since; throws without a tag. */
+export function nextRelease({ tag, messages }: History): NextRelease {
+  if (tag === undefined) {
+    throw new Error(
+      "no release tag vX.Y.Z reachable from HEAD; tags are the source of truth, see RELEASING.md",
+    );
+  }
+  const base = tag.slice(1);
+  const bump = highestBump(messages);
+  if (!bump) {
+    return { base, reason: `no feat, fix, perf or breaking commits since ${tag}` };
+  }
+  return { base, bump, version: bumpVersion(base, bump) };
+}
+
 /** Parses an `npm view --json` result; undefined for E404 (no such package or version). */
 export function parseView(result: { status: number | null; stdout: string }): unknown {
   const output = result.stdout.trim();
