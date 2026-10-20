@@ -4,12 +4,15 @@ import { describe, it } from "node:test";
 import {
   atLeast,
   bumpVersion,
+  COMMIT_TYPES,
   commitBump,
+  commitMessages,
   compareSemver,
   distTag,
   highestBump,
   isPlaceholder,
   latestReleaseTag,
+  lintCommit,
   nextRelease,
   PLACEHOLDER_VERSION,
   parseSemver,
@@ -323,5 +326,56 @@ describe("isPlaceholder", () => {
       readFileSync(new URL("../../package.json", import.meta.url), "utf8"),
     );
     assert.ok(parseSemver(version), `package.json version ${version} is not semver`);
+  });
+});
+
+describe("commitMessages", () => {
+  it("splits NUL-terminated bodies of the range", () => {
+    const calls: string[][] = [];
+    const git = (args: string[]) => {
+      calls.push(args);
+      return "docs: a\n\0\nfix: b\n\nWhy.\n\0\n";
+    };
+    assert.deepEqual(commitMessages("main..HEAD", git), ["docs: a", "fix: b\n\nWhy."]);
+    assert.deepEqual(calls, [["log", "--format=%B%x00", "main..HEAD"]]);
+  });
+});
+
+describe("lintCommit", () => {
+  it("accepts AGENTS.md commit messages", () => {
+    for (const message of [
+      "feat(cli): add x",
+      "fix!: y\n\nWhy.\n\nBREAKING CHANGE: y is gone",
+      "docs: z",
+      ...COMMIT_TYPES.map((type) => `${type}: x`),
+    ]) {
+      assert.deepEqual(lintCommit(message), [], message);
+    }
+  });
+  it("rejects anything else", () => {
+    const cases: [string, RegExp][] = [
+      ["feature: x", /type feature is not one of/],
+      ["Feat: x", /type Feat is not one of/],
+      ["feat: Add x", /uppercase/],
+      ["feat: add x.", /period/],
+      [`feat: ${"x".repeat(73)}`, /longer than 72/],
+      ["feat:  ", /empty/],
+      ["feat!: drop x", /BREAKING CHANGE: footer/],
+      ["fixup! feat: x", /squash/],
+      ["squash! feat: x", /squash/],
+      ["Merge branch 'main'", /linear history/],
+      ["feat add x", /header/],
+      ["", /header/],
+    ];
+    for (const [message, problem] of cases) {
+      const problems = lintCommit(message);
+      assert.ok(
+        problems.some((p) => problem.test(p)),
+        `${message}: ${problems.join("; ")}`,
+      );
+    }
+  });
+  it("accepts a 72-character description", () => {
+    assert.deepEqual(lintCommit(`feat: ${"x".repeat(72)}`), []);
   });
 });
