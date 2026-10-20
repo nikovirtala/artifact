@@ -54,6 +54,8 @@
     "@aws-sdk/client-secrets-manager": "3.1152.0",
     "@biomejs/biome": "2.5.15",
     "@types/node": "^24.19.2",
+    "aws-cdk-lib": "2.273.0",
+    "constructs": "10.8.1",
     "esbuild": "0.28.2",
     "fast-check": "4.10.2",
     "typescript": "7.0.2"

@@ -191,6 +191,12 @@ importers:
       '@types/node':
         specifier: ^24.19.2
         version: 24.19.2
+      aws-cdk-lib:
+        specifier: 2.273.0
+        version: 2.273.0(constructs@10.8.1)
+      constructs:
+        specifier: 10.8.1
+        version: 10.8.1
       esbuild:
         specifier: 0.28.2
         version: 0.28.2

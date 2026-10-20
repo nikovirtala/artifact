@@ -105,6 +105,21 @@ function scan(patterns: string[]): string[] {
   );
 }
 
+// M9 (docs/decisions/0071, 0073): constructs and esbuild are build/deploy-time only, and src/cdk/
+// stays self-contained, so dist/cdk/*.d.ts resolve on their own and `require(esm)` of dist/cdk
+// never meets top-level await.
+const buildOnly = /^constructs(\/|$)|^esbuild(\/|$)/;
+const cdkAllowed = /^aws-cdk-lib(\/|$)|^constructs(\/|$)|^node:/;
+const cdkDir = join(src, "cdk");
+
+function cdkViolations(file: string, source: string): string[] {
+  return specifiers(source).filter((spec) => {
+    if (!spec.startsWith(".")) return !cdkAllowed.test(spec);
+    const target = resolve(dirname(file), spec);
+    return !target.startsWith(cdkDir + sep);
+  });
+}
+
 // docs/decisions/0059: the shipped package never depends on the dev-only aws/ workspace, and the
 // Lambda sources in src/runtime/ never pull in the CDK.
 const awsWorkspace = join(root, "aws");
@@ -186,6 +201,58 @@ describe("v2 import boundaries", () => {
       "@aws-sdk/client-ssm",
       "@aws-sdk/client-sts",
       "aws-cdk-lib",
+    ]);
+  });
+
+  it("v1 code never imports constructs or esbuild", () => {
+    const files = globSync(v1Globs, { cwd: root }).map((f) => join(root, f));
+    const found = files.flatMap((file) =>
+      specifiers(readFileSync(file, "utf8"))
+        .filter((spec) => buildOnly.test(spec))
+        .map((spec) => `${relative(root, file)}: ${spec}`),
+    );
+    assert.deepEqual(found, []);
+    const probe = ["constructs", "constructs/lib", "esbuild", "constructsx", "esbuild-wasm", "zod"];
+    assert.deepEqual(
+      probe.filter((spec) => buildOnly.test(spec)),
+      ["constructs", "constructs/lib", "esbuild"],
+    );
+  });
+
+  it("src/cdk/** imports only aws-cdk-lib, constructs, node:* and src/cdk/ itself", () => {
+    const files = globSync("src/cdk/**/*.ts", { cwd: root }).map((f) => join(root, f));
+    assert.ok(files.length > 0);
+    const found = files.flatMap((file) =>
+      cdkViolations(file, readFileSync(file, "utf8")).map(
+        (spec) => `${relative(root, file)}: ${spec}`,
+      ),
+    );
+    assert.deepEqual(found, []);
+  });
+
+  it("detects anything else imported by src/cdk/", () => {
+    const file = join(src, "cdk", "nested", "a.ts");
+    const source = [
+      'import { App } from "aws-cdk-lib";',
+      'import { Bucket } from "aws-cdk-lib/aws-s3";',
+      'import { Construct } from "constructs";',
+      'import { join } from "node:path";',
+      'import { x } from "../b.ts";',
+      'import { y } from "./c.ts";',
+      'import { z } from "zod";',
+      'import { Hono } from "hono";',
+      'import { LIMITS } from "../../core/artifact-service.ts";',
+      'import { h } from "../../runtime/handlers/control.ts";',
+      'import { S3Client } from "@aws-sdk/client-s3";',
+      'import "path";',
+    ].join("\n");
+    assert.deepEqual(cdkViolations(file, source), [
+      "zod",
+      "hono",
+      "../../core/artifact-service.ts",
+      "../../runtime/handlers/control.ts",
+      "@aws-sdk/client-s3",
+      "path",
     ]);
   });
 

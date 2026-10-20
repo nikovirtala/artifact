@@ -72,3 +72,5 @@ One short file per decision, numbered in order. Status is **Accepted** (in effec
 | [0066](0066-control-lambda.md) | Control Lambda: Hono on Lambda, owner-decided AWS limits (3 MiB, 4,500,000-byte cap; V3), request-shape log line, cookies stripped before the app; staged uploads recommended next | Accepted |
 | [0067](0067-sweep-and-prune-schedules.md) | Daily sweep and prune schedules; `dataRetention`; prune failures fail the run | Accepted |
 | [0068](0068-prebuilt-lambda-assets.md) | Prebuilt Lambda assets: esbuild bundles in `dist/assets`, runtime SDK external (A14), version inlined, pnpm `allowBuilds` | Accepted |
+| [0069](0069-cognito-identity-m9.md) | Cognito identity in M9: the user pool and validated owners; users arrive with the M10 login | Accepted |
+| [0070](0070-bucket-and-iam.md) | Bucket settings, bucket policy and least-privilege IAM for the control, sweep and scheduler roles | Accepted |

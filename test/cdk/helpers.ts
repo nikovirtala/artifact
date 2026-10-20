@@ -1,0 +1,57 @@
+// Shared fixtures for the construct tests: a stack in a placeholder account with a created zone.
+import { App, Stack, type StackProps } from "aws-cdk-lib";
+import { Template } from "aws-cdk-lib/assertions";
+import { HostedZone, type IHostedZone, PublicHostedZone } from "aws-cdk-lib/aws-route53";
+import {
+  ArtifactHosting,
+  type ArtifactHostingProps,
+  ArtifactIdentity,
+} from "../../src/cdk/index.ts";
+
+export const ACCOUNT = "123456789012";
+export const ZONE = "example.dev";
+export const VIEW = `art.${ZONE}`;
+export const API = `api.${VIEW}`;
+export const OWNER = "owner@example.com";
+
+export function testStack(
+  app = new App(),
+  id = "Test",
+  props: StackProps = { env: { account: ACCOUNT, region: "eu-north-1" } },
+) {
+  return new Stack(app, id, props);
+}
+
+export function testZone(stack: Stack, id = "Zone"): IHostedZone {
+  return HostedZone.fromHostedZoneAttributes(stack, id, {
+    hostedZoneId: "Z0000000000000000000",
+    zoneName: ZONE,
+  });
+}
+
+export function createdZone(stack: Stack, id = "Zone"): IHostedZone {
+  return new PublicHostedZone(stack, id, { zoneName: ZONE });
+}
+
+export function baseProps(zone: IHostedZone, overrides: Partial<ArtifactHostingProps> = {}) {
+  return {
+    viewDomain: { name: VIEW, hostedZone: zone },
+    apiDomain: { name: API },
+    identity: ArtifactIdentity.cognito({ owners: [OWNER] }),
+    ...overrides,
+  } satisfies ArtifactHostingProps;
+}
+
+/** One `ArtifactHosting` with id `Artifacts` in a fresh stack, and its template. */
+export function hosting(overrides: Partial<ArtifactHostingProps> = {}, app = new App()) {
+  const stack = testStack(app);
+  const construct = new ArtifactHosting(stack, "Artifacts", baseProps(testZone(stack), overrides));
+  return { app, stack, construct, template: Template.fromStack(stack) };
+}
+
+type Resource = { Type: string; Properties?: Record<string, unknown>; [k: string]: unknown };
+
+export function resources(template: Template, type?: string): [string, Resource][] {
+  const all = template.toJSON().Resources as Record<string, Resource>;
+  return Object.entries(all).filter(([, r]) => type === undefined || r.Type === type);
+}
