@@ -79,3 +79,4 @@ One short file per decision, numbered in order. Status is **Accepted** (in effec
 | [0073](0073-construct-package-shape.md) | Construct package shape: `./cdk` export, optional peers, source condition, declarations for `dist/cdk` only with `.js` specifiers | Accepted |
 | [0074](0074-pack-test-cdk-app.md) | Pack test: optional peers, tarball CDK app (TS 5.9.3 `target: esnext` without `skipLibCheck`, CloudFormation Validate clean); CI synth without AWS access | Accepted |
 | [0075](0075-examples-personal.md) | `examples/personal`: stages, DNS stack, strong cross-region references (experimental; `weak` rejected), owners from the environment, source-condition synth, snapshot | Accepted |
+| [0076](0076-smoke-and-deploy-guide.md) | Smoke and retention scripts, CloudShell deploy guide, and the runtime SDK log line (V2 residual) | Accepted |

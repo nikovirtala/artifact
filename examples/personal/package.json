@@ -9,9 +9,18 @@
     "test": "node --conditions=artifact-source --test \"test/**/*.test.ts\"",
     "synth": "cdk synth --quiet --no-notices",
     "synth:ci": "ARTIFACT_OWNERS=owner@example.com AWS_EC2_METADATA_DISABLED=true cdk synth --quiet --no-notices --output cdk.out.ci",
-    "check": "pnpm typecheck && pnpm test && pnpm synth:ci"
+    "check": "pnpm typecheck && pnpm test && pnpm synth:ci",
+    "smoke": "node --conditions=artifact-source scripts/smoke.ts",
+    "retention-check": "node --conditions=artifact-source scripts/retention-check.ts",
+    "check:dns": "node scripts/check-dns.ts"
   },
   "devDependencies": {
+    "@aws-sdk/client-cloudformation": "3.1152.0",
+    "@aws-sdk/client-cloudwatch-logs": "3.1152.0",
+    "@aws-sdk/client-lambda": "3.1152.0",
+    "@aws-sdk/client-s3": "3.1152.0",
+    "@aws-sdk/client-scheduler": "3.1152.0",
+    "@modelcontextprotocol/sdk": "^1.32.1",
     "@nikovirtala/artifact": "workspace:*",
     "@types/node": "^24.19.2",
     "aws-cdk": "2.1145.0",
