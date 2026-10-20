@@ -1,7 +1,6 @@
 // MCP tools at /mcp over Streamable HTTP in stateless mode (docs/decisions/0033–0036): a fresh
 // server and transport per POST, JSON responses, no sessions. Inputs come from the shared Zod
 // schemas; results and errors carry the same objects as the JSON API.
-import { createRequire } from "node:module";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import {
@@ -28,6 +27,7 @@ import {
   encodeFileValue,
   toolInputSchemas,
 } from "../schemas.ts";
+import { PACKAGE_VERSION } from "../version.ts";
 import { readEntryFile } from "./file-path.ts";
 
 export type McpConfig = {
@@ -46,10 +46,6 @@ export type McpDeps = {
   opener?: Opener;
   /** The URLs handed out; default `LocalHostPolicy(config)` (docs/decisions/0053). */
   hosts?: HostPolicy;
-};
-
-const { version: PACKAGE_VERSION } = createRequire(import.meta.url)("../../package.json") as {
-  version: string;
 };
 
 // Which tool to pick, then the core loop (docs/decisions/0036, 0038).

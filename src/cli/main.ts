@@ -2,9 +2,9 @@
 // `artifact` CLI: one binary for the server and the client commands (docs/decisions/0041).
 // Exit codes: 0 ok, 1 error, 2 usage. Sets process.exitCode and never calls process.exit, so
 // binary output on stdout is flushed.
-import { createRequire } from "node:module";
 import { homedir } from "node:os";
 import { SERVE_USAGE } from "../config.ts";
+import { PACKAGE_VERSION } from "../version.ts";
 import * as init from "./init.ts";
 import * as list from "./list.ts";
 import * as mcp from "./mcp.ts";
@@ -30,10 +30,6 @@ type Command = {
   /** Starts with `Usage: artifact <name> …`; that line's rest is the synopsis in the global help. */
   usage: string;
   run: (args: string[], ctx: CliContext) => Promise<number>;
-};
-
-const { version: PACKAGE_VERSION } = createRequire(import.meta.url)("../../package.json") as {
-  version: string;
 };
 
 /** A client command module: `USAGE` and `run`. */
