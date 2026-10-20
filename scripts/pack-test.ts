@@ -1,11 +1,21 @@
 // Pack the package, install the tarball into a temp app and run the e2e suite against the
 // installed bin (docs/decisions/0048). Not part of `pnpm check`: it builds and needs the registry.
-// KEEP_PACK_TEST=1 keeps the temp directory for inspection.
+// Then CDK apps outside the repo synthesize the construct from the tarball, with no AWS access
+// (docs/decisions/0074). KEEP_PACK_TEST=1 keeps the temp directory for inspection.
 import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
+import { tarballAppFiles } from "./lib/tarball-app.ts";
 import { TS_SPECIFIER } from "./lib/ts-specifier.ts";
 
 const repo = fileURLToPath(new URL("..", import.meta.url));
@@ -13,6 +23,273 @@ const run = (command: string, args: string[], cwd: string): string =>
   execFileSync(command, args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "inherit"] });
 
 const tmp = mkdtempSync(join(tmpdir(), "artifact-pack-test-"));
+
+const CDK_LIB = "aws-cdk-lib@2.273.0";
+const CONSTRUCTS = "constructs@10.8.1";
+const CDK_CLI = "aws-cdk@2.1145.0";
+
+/** The environment without AWS credentials or configuration: synth must never reach AWS. */
+function offlineEnv(extra: Record<string, string> = {}): NodeJS.ProcessEnv {
+  const env = Object.fromEntries(
+    Object.entries(process.env).filter(([name]) => !name.startsWith("AWS_")),
+  );
+  const none = join(tmp, "no-aws-config");
+  return {
+    ...env,
+    AWS_EC2_METADATA_DISABLED: "true",
+    AWS_CONFIG_FILE: none,
+    AWS_SHARED_CREDENTIALS_FILE: none,
+    CDK_DISABLE_CLI_TELEMETRY: "true",
+    ...extra,
+  };
+}
+
+const npm = (args: string[], cwd: string, env?: NodeJS.ProcessEnv) =>
+  execFileSync("npm", [...args, "--no-audit", "--no-fund"], { cwd, stdio: "inherit", env });
+
+const nonEmptyLines = (text: string) => text.split("\n").filter((l) => l.trim() !== "").length;
+
+type CfnResource = { Type: string; Properties: Record<string, unknown> };
+
+/**
+ * Exactly two `index.handler` functions on nodejs24.x/arm64 whose code is a cdk.out asset
+ * directory holding index.mjs (other functions, CDK's auto-delete provider, are ignored).
+ * Returns the asset directories.
+ */
+function assetFunctions(outdir: string, stack: string): string[] {
+  const template = JSON.parse(readFileSync(join(outdir, `${stack}.template.json`), "utf8")) as {
+    Resources: Record<string, CfnResource>;
+  };
+  const dirs: string[] = [];
+  for (const f of Object.values(template.Resources)) {
+    if (f.Type !== "AWS::Lambda::Function" || f.Properties.Handler !== "index.handler") continue;
+    const { Runtime, Architectures, Code } = f.Properties as {
+      Runtime: string;
+      Architectures?: string[];
+      Code: { S3Key?: string };
+    };
+    const hash = /^([0-9a-f]{64})\.zip$/.exec(Code.S3Key ?? "")?.[1];
+    const dir = join(outdir, `asset.${hash}`);
+    if (hash === undefined || !existsSync(join(dir, "index.mjs"))) continue;
+    if (Runtime !== "nodejs24.x" || Architectures?.join() !== "arm64") {
+      throw new Error(`pack-test: ${stack} has a ${Runtime}/${Architectures} function`);
+    }
+    dirs.push(dir);
+  }
+  if (dirs.length !== 2) throw new Error(`pack-test: ${stack} has ${dirs.length} asset functions`);
+  return dirs;
+}
+
+const appSource = (body: string[]) =>
+  [
+    "const app = new App();",
+    'const stack = new Stack(app, "TarballApp", { env: { account: "123456789012", region: "eu-north-1" } });',
+    'const hostedZone = HostedZone.fromHostedZoneAttributes(stack, "Zone", { hostedZoneId: "Z0000000000000000000", zoneName: "example.dev" });',
+    'new ArtifactHosting(stack, "Artifacts", {',
+    '  viewDomain: { name: "tarball.example.dev", hostedZone },',
+    '  apiDomain: { name: "api.tarball.example.dev" },',
+    '  identity: ArtifactIdentity.cognito({ owners: ["owner@example.com"] }),',
+    "  dataRetention: { onDestroy: RemovalPolicy.DESTROY, versions: { keepLast: 2 } },",
+    "});",
+    ...body,
+  ].join("\n");
+
+/** (b) A plain ESM CDK app outside the repo: the tarball, the CDK and nothing to build with. */
+function cdkApp(tarball: string): void {
+  const dir = join(tmp, "cdk-app");
+  mkdirSync(dir);
+  writeFileSync(join(dir, "package.json"), '{"name":"cdk-app","private":true,"type":"module"}\n');
+  npm(["install", tarball, CDK_LIB, CONSTRUCTS], dir);
+  if (existsSync(join(dir, "node_modules", "esbuild"))) {
+    throw new Error("pack-test: the CDK app installed esbuild");
+  }
+  const source = [
+    'import { App, RemovalPolicy, Stack } from "aws-cdk-lib";',
+    'import { HostedZone } from "aws-cdk-lib/aws-route53";',
+    'import { ArtifactHosting, ArtifactIdentity } from "@nikovirtala/artifact/cdk";',
+    appSource(["app.synth();", ""]),
+  ].join("\n");
+  if (nonEmptyLines(source) >= 20) throw new Error("pack-test: app.mjs has 20 lines or more");
+  writeFileSync(join(dir, "app.mjs"), source);
+  execFileSync(process.execPath, ["app.mjs"], {
+    cwd: dir,
+    stdio: "inherit",
+    env: offlineEnv({ CDK_OUTDIR: "cdk.out" }),
+  });
+  assetFunctions(join(dir, "cdk.out"), "TarballApp");
+  console.log("pack-test: (b) an ESM CDK app synthesizes two prebuilt functions, no esbuild");
+}
+
+/** (b2) TypeScript 5.9.3 consumers (node10 and nodenext, no skipLibCheck) and plain require. */
+function typescriptConsumers(dir: string): void {
+  npm(["install", "typescript@5.9.3"], dir);
+  const imports = [
+    'import { App, RemovalPolicy, Stack } from "aws-cdk-lib";',
+    'import { HostedZone } from "aws-cdk-lib/aws-route53";',
+    'import { ArtifactHosting, ArtifactIdentity } from "@nikovirtala/artifact/cdk";',
+  ];
+  writeFileSync(join(dir, "app.ts"), [...imports, appSource([""])].join("\n"));
+  const configs = {
+    "tsconfig.node10.json":
+      '{"compilerOptions":{"module":"commonjs","moduleResolution":"node10","target":"esnext","strict":true,"noEmit":true},"files":["app.ts"]}',
+    "tsconfig.nodenext.json":
+      '{"compilerOptions":{"module":"nodenext","strict":true,"noEmit":true},"files":["app.ts"]}',
+  };
+  for (const [name, config] of Object.entries(configs)) {
+    writeFileSync(join(dir, name), `${config}\n`);
+    execFileSync(join(dir, "node_modules", ".bin", "tsc"), ["-p", name], {
+      cwd: dir,
+      stdio: "inherit",
+    });
+  }
+  const required = [
+    'const { App, RemovalPolicy, Stack } = require("aws-cdk-lib");',
+    'const { HostedZone } = require("aws-cdk-lib/aws-route53");',
+    'const { ArtifactHosting, ArtifactIdentity } = require("@nikovirtala/artifact/cdk");',
+    appSource(["app.synth();", ""]),
+  ].join("\n");
+  writeFileSync(join(dir, "app.cjs"), required);
+  execFileSync(process.execPath, ["app.cjs"], {
+    cwd: dir,
+    stdio: "inherit",
+    env: offlineEnv({ CDK_OUTDIR: "cdk.out.cjs" }),
+  });
+  assetFunctions(join(dir, "cdk.out.cjs"), "TarballApp");
+  console.log(
+    "pack-test: (b2) TypeScript 5.9.3 node10 + nodenext type-check; require() synthesizes",
+  );
+}
+
+type NpmTree = { dependencies?: Record<string, NpmTree> };
+
+/** Every dependency path (names from the root) that ends in `name`. */
+function pathsTo(tree: NpmTree, name: string, trail: string[] = []): string[][] {
+  return Object.entries(tree.dependencies ?? {}).flatMap(([dep, sub]) => [
+    ...(dep === name ? [[...trail, dep]] : []),
+    ...pathsTo(sub, name, [...trail, dep]),
+  ]);
+}
+
+/** (b3) The real `cdk init` app (TypeScript 7, NodeNext, CommonJS via tsx) from the tarball. */
+function initApp(tarball: string, dist: string): void {
+  const dir = join(tmp, "init-app");
+  mkdirSync(dir);
+  execFileSync(
+    "npx",
+    ["--yes", CDK_CLI, "init", "app", "--language", "typescript", "--generate-only"],
+    { cwd: dir, stdio: "inherit", env: offlineEnv() },
+  );
+  const pkg = JSON.parse(readFileSync(join(dir, "package.json"), "utf8")) as { type?: string };
+  const tsconfig = JSON.parse(readFileSync(join(dir, "tsconfig.json"), "utf8")) as {
+    compilerOptions: { module: string; moduleResolution: string; noEmit: boolean };
+  };
+  const cdkJson = JSON.parse(readFileSync(join(dir, "cdk.json"), "utf8")) as { app: string };
+  const { module, moduleResolution, noEmit } = tsconfig.compilerOptions;
+  if (
+    pkg.type !== undefined ||
+    module !== "NodeNext" ||
+    moduleResolution !== "NodeNext" ||
+    noEmit !== true ||
+    cdkJson.app !== "npx tsc && npx tsx bin/init-app.ts"
+  ) {
+    throw new Error(
+      `pack-test: the cdk init template changed: type ${pkg.type}, ${module}/${moduleResolution}, noEmit ${noEmit}, app ${cdkJson.app}`,
+    );
+  }
+  // One install of the template's dependencies with the tarball and the pinned CDK: a second
+  // install that downgrades the template's aws-cdk-lib range leaves npm's tree broken (0074).
+  npm(["install", tarball, CDK_LIB, CONSTRUCTS], dir);
+  const files = tarballAppFiles("init-app");
+  writeFileSync(join(dir, files.bin.path), files.bin.text);
+  writeFileSync(join(dir, files.stack.path), files.stack.text);
+  execFileSync("npx", ["tsc"], { cwd: dir, stdio: "inherit" });
+  execFileSync(
+    "npx",
+    [
+      "cdk",
+      "synth",
+      "-c",
+      "zoneId=Z0000000000000000000",
+      "-c",
+      "zoneName=example.dev",
+      "--quiet",
+      "--no-notices",
+    ],
+    { cwd: dir, stdio: "inherit", env: offlineEnv({ ARTIFACT_OWNERS: "owner@example.com" }) },
+  );
+  const outdir = join(dir, "cdk.out");
+  if (!existsSync(join(outdir, `${files.stackId}.template.json`))) {
+    throw new Error(`pack-test: cdk init synth wrote no ${files.stackId}.template.json`);
+  }
+  assetFunctions(outdir, files.stackId);
+
+  // The recommended feature flags of the template change nothing in the bucket policy.
+  const template = JSON.parse(
+    readFileSync(join(outdir, `${files.stackId}.template.json`), "utf8"),
+  ) as { Resources: Record<string, CfnResource> };
+  const policies = Object.values(template.Resources).filter(
+    (r) => r.Type === "AWS::S3::BucketPolicy",
+  );
+  const statements = policies.flatMap(
+    (p) =>
+      (
+        p.Properties.PolicyDocument as {
+          Statement: { Effect: string; Principal: unknown; Condition?: unknown }[];
+        }
+      ).Statement,
+  );
+  const allows = statements.filter((s) => s.Effect === "Allow");
+  const denies = statements
+    .filter((s) => s.Effect === "Deny")
+    .map((s) => JSON.stringify(s.Condition));
+  if (
+    allows.length !== 1 ||
+    !JSON.stringify(allows[0].Principal).includes(
+      "CustomS3AutoDeleteObjectsCustomResourceProviderRole",
+    ) ||
+    denies.sort().join() !==
+      [
+        JSON.stringify({ Bool: { "aws:SecureTransport": "false" } }),
+        JSON.stringify({ NumericLessThan: { "s3:TlsVersion": 1.2 } }),
+      ]
+        .sort()
+        .join()
+  ) {
+    throw new Error(`pack-test: unexpected bucket policy ${JSON.stringify(statements)}`);
+  }
+
+  // Every deployed handler is byte-identical to a bundle in the tarball.
+  const bundles = ["control", "sweep"].map((name) =>
+    readFileSync(join(dist, "assets", name, "index.mjs")),
+  );
+  const assets = readdirSync(outdir)
+    .filter((name) => name.startsWith("asset.") && existsSync(join(outdir, name, "index.mjs")))
+    .map((name) => readFileSync(join(outdir, name, "index.mjs")));
+  if (assets.length !== 2 || !assets.every((a) => bundles.some((b) => b.equals(a)))) {
+    throw new Error("pack-test: the synthesized assets differ from the tarball's bundles");
+  }
+
+  // CloudFormation Validate ran on the synth and found nothing, warnings included (A20).
+  const report = JSON.parse(readFileSync(join(outdir, "validation-report.json"), "utf8")) as {
+    pluginReports?: unknown[];
+  };
+  if (JSON.stringify(report.pluginReports) !== "[]") {
+    throw new Error(`pack-test: validation report ${JSON.stringify(report.pluginReports)}`);
+  }
+
+  // esbuild comes only with tsx, the template's TypeScript runner, never with the construct.
+  const tree = JSON.parse(
+    spawnSync("npm", ["ls", "esbuild", "--all", "--json"], { cwd: dir, encoding: "utf8" }).stdout,
+  ) as NpmTree;
+  const paths = pathsTo(tree, "esbuild");
+  const bad = paths.filter((p) => !p.includes("tsx") || p.includes("@nikovirtala/artifact"));
+  if (paths.length === 0 || bad.length > 0) {
+    throw new Error(`pack-test: esbuild paths ${JSON.stringify(paths)}`);
+  }
+  console.log(
+    "pack-test: (b3) the cdk init app type-checks and synthesizes from the tarball; assets match, validation clean, esbuild only under tsx",
+  );
+}
 let status = 1;
 try {
   execFileSync("pnpm", ["build"], { cwd: repo, stdio: "inherit" });
@@ -116,7 +393,12 @@ try {
     ["--test", "test/e2e/**/*.test.ts", "test/cli/main.test.ts"],
     { cwd: repo, stdio: "inherit", env: { ...process.env, ARTIFACT_CLI: bin } },
   );
-  status = tests.status ?? 1;
+  if (tests.status !== 0) throw new Error("pack-test: the e2e suite failed");
+
+  cdkApp(tarball);
+  typescriptConsumers(join(tmp, "cdk-app"));
+  initApp(tarball, dist);
+  status = 0;
 } catch (error) {
   console.error(error instanceof Error ? error.message : error);
 } finally {
