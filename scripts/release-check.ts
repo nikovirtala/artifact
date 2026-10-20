@@ -7,6 +7,8 @@
 //                                        writes publish, version and tag to $GITHUB_OUTPUT
 //   node scripts/release-check.ts guard  fails if package.json holds the placeholder version
 //                                        (prepublishOnly, so a manual publish cannot ship it)
+//   node scripts/release-check.ts commits <base> <head>
+//                                        commits in base..head follow Conventional Commits (ci.yml)
 import { execFileSync, spawnSync } from "node:child_process";
 import { appendFileSync, readFileSync } from "node:fs";
 
@@ -189,11 +191,51 @@ export function readHistory(git: (args: string[]) => string = runGit): History {
   }
   const tag = latestReleaseTag(git(["tag", "--merged", "HEAD", "--list", "v*"]).split(/\s+/));
   if (tag === undefined) return { tag, messages: [] };
-  const messages = git(["log", "--format=%B%x00", `${tag}..HEAD`])
+  return { tag, messages: commitMessages(`${tag}..HEAD`, git) };
+}
+
+/** The full messages of the commits in `range`, newest first. */
+export function commitMessages(range: string, git: (args: string[]) => string = runGit): string[] {
+  return git(["log", "--format=%B%x00", range])
     .split("\0")
     .map((message) => message.trim())
     .filter((message) => message !== "");
-  return { tag, messages };
+}
+
+/** The commit types AGENTS.md allows. */
+export const COMMIT_TYPES = [
+  "feat",
+  "fix",
+  "build",
+  "chore",
+  "ci",
+  "docs",
+  "perf",
+  "refactor",
+  "revert",
+  "style",
+  "test",
+];
+
+/** What is wrong with `message` under AGENTS.md's Conventional Commits rules; empty if nothing. */
+export function lintCommit(message: string): string[] {
+  const [header = "", ...rest] = message.split(/\r?\n/);
+  if (/^(fixup|squash|amend)! /.test(header)) return ["squash fixup commits before merging"];
+  if (/^Merge /.test(header)) return ["merge commits break linear history"];
+  const match = HEADER.exec(header);
+  if (!match?.groups) return ["header is not `type(scope): description`"];
+  const { type, bang, description } = match.groups;
+  const problems: string[] = [];
+  if (!COMMIT_TYPES.includes(type))
+    problems.push(`type ${type} is not one of ${COMMIT_TYPES.join(", ")}`);
+  if (description.trim() === "") problems.push("description is empty");
+  if (description.length > 72) problems.push("description is longer than 72 characters");
+  if (/^[A-Z]/.test(description)) problems.push("description starts with an uppercase letter");
+  if (description.endsWith(".")) problems.push("description ends with a period");
+  if (bang && !rest.some((line) => /^BREAKING[ -]CHANGE: /.test(line))) {
+    problems.push("! needs a BREAKING CHANGE: footer");
+  }
+  return problems;
 }
 
 function runGit(args: string[]): string {
@@ -235,7 +277,7 @@ function npmView(args: string[]): unknown {
   return parseView(result);
 }
 
-function main([command]: string[]): number {
+function main([command, ...args]: string[]): number {
   if (command === "npm") {
     const version = execFileSync("npm", ["--version"], { encoding: "utf8" }).trim();
     if (!atLeast(version, MIN_NPM)) {
@@ -296,7 +338,22 @@ function main([command]: string[]): number {
     }
     return 0;
   }
-  console.error("usage: node scripts/release-check.ts npm | next | plan | guard");
+  if (command === "commits" && args.length === 2) {
+    const messages = commitMessages(`${args[0]}..${args[1]}`);
+    let failed = false;
+    for (const message of messages) {
+      for (const problem of lintCommit(message)) {
+        console.error(`release-check: ${message.split("\n")[0]}: ${problem}`);
+        failed = true;
+      }
+    }
+    if (failed) return 1;
+    console.log(`release-check: ${messages.length} commits follow Conventional Commits`);
+    return 0;
+  }
+  console.error(
+    "usage: node scripts/release-check.ts npm | next | plan | guard | commits <base> <head>",
+  );
   return 2;
 }
 
