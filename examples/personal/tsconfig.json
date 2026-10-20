@@ -1,0 +1,7 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "customConditions": ["artifact-source"]
+  },
+  "include": ["bin", "lib", "scripts", "test"]
+}

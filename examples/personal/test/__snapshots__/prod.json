@@ -1,0 +1,1209 @@
+{
+  "dns": {
+    "Resources": {
+      "ZoneA5DE4B68": {
+        "Type": "AWS::Route53::HostedZone",
+        "Properties": {
+          "Name": "artifact.nikovirtala.dev."
+        },
+        "UpdateReplacePolicy": "Retain",
+        "DeletionPolicy": "Retain"
+      },
+      "ExportsWritereunorth1A046C3EF536D3E39": {
+        "Type": "Custom::CrossRegionExportWriter",
+        "Properties": {
+          "ServiceToken": {
+            "Fn::GetAtt": [
+              "CustomCrossRegionExportWriterCustomResourceProviderHandlerD8786E8A",
+              "Arn"
+            ]
+          },
+          "WriterProps": {
+            "region": "eu-north-1",
+            "exports": {
+              "/cdk/exports/artifact-prod-platform/artifactproddnsuseast1RefZoneA5DE4B68B92B0AA2": {
+                "Ref": "ZoneA5DE4B68"
+              }
+            }
+          }
+        },
+        "UpdateReplacePolicy": "Delete",
+        "DeletionPolicy": "Delete"
+      },
+      "CustomCrossRegionExportWriterCustomResourceProviderRoleC951B1E1": {
+        "Type": "AWS::IAM::Role",
+        "Properties": {
+          "AssumeRolePolicyDocument": {
+            "Version": "2012-10-17",
+            "Statement": [
+              {
+                "Action": "sts:AssumeRole",
+                "Effect": "Allow",
+                "Principal": {
+                  "Service": "lambda.amazonaws.com"
+                }
+              }
+            ]
+          },
+          "ManagedPolicyArns": [
+            {
+              "Fn::Sub": "arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+            }
+          ],
+          "Policies": [
+            {
+              "PolicyName": "Inline",
+              "PolicyDocument": {
+                "Version": "2012-10-17",
+                "Statement": [
+                  {
+                    "Effect": "Allow",
+                    "Resource": [
+                      {
+                        "Fn::Join": [
+                          "",
+                          [
+                            "arn:",
+                            {
+                              "Ref": "AWS::Partition"
+                            },
+                            ":ssm:eu-north-1:<account>:parameter/cdk/exports/*"
+                          ]
+                        ]
+                      }
+                    ],
+                    "Action": [
+                      "ssm:DeleteParameters",
+                      "ssm:ListTagsForResource",
+                      "ssm:GetParameters",
+                      "ssm:PutParameter"
+                    ]
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "CustomCrossRegionExportWriterCustomResourceProviderHandlerD8786E8A": {
+        "Type": "AWS::Lambda::Function",
+        "Properties": {
+          "Code": {
+            "S3Bucket": "cdk-hnb659fds-assets-<account>-us-east-1",
+            "S3Key": "<asset-hash>.zip"
+          },
+          "Timeout": 900,
+          "MemorySize": 128,
+          "Handler": "__entrypoint__.handler",
+          "Role": {
+            "Fn::GetAtt": [
+              "CustomCrossRegionExportWriterCustomResourceProviderRoleC951B1E1",
+              "Arn"
+            ]
+          },
+          "Runtime": "nodejs24.x"
+        },
+        "DependsOn": [
+          "CustomCrossRegionExportWriterCustomResourceProviderRoleC951B1E1"
+        ]
+      }
+    },
+    "Outputs": {
+      "NameServers": {
+        "Description": "Delegate the zone with an NS record of these servers in the parent zone",
+        "Value": {
+          "Fn::Join": [
+            ",",
+            {
+              "Fn::GetAtt": [
+                "ZoneA5DE4B68",
+                "NameServers"
+              ]
+            }
+          ]
+        }
+      },
+      "HostedZoneId": {
+        "Value": {
+          "Ref": "ZoneA5DE4B68"
+        }
+      },
+      "ExportsOutputRefZoneA5DE4B6864A9A0D8": {
+        "Value": {
+          "Ref": "ZoneA5DE4B68"
+        },
+        "Export": {
+          "Name": "artifact-prod-dns:ExportsOutputRefZoneA5DE4B6864A9A0D8"
+        }
+      }
+    },
+    "Parameters": {
+      "BootstrapVersion": {
+        "Type": "AWS::SSM::Parameter::Value<String>",
+        "Default": "/cdk-bootstrap/hnb659fds/version",
+        "Description": "Version of the CDK Bootstrap resources in this environment, automatically retrieved from SSM Parameter Store. [cdk:skip]"
+      }
+    },
+    "Rules": {
+      "CheckBootstrapVersion": {
+        "Assertions": [
+          {
+            "Assert": {
+              "Fn::Not": [
+                {
+                  "Fn::Contains": [
+                    [
+                      "1",
+                      "2",
+                      "3",
+                      "4",
+                      "5"
+                    ],
+                    {
+                      "Ref": "BootstrapVersion"
+                    }
+                  ]
+                }
+              ]
+            },
+            "AssertDescription": "CDK bootstrap stack version 6 required. Please run 'cdk bootstrap' with a recent version of the CDK CLI."
+          }
+        ]
+      }
+    }
+  },
+  "certificate": {
+    "Resources": {
+      "ViewCertificate5D8B1D9B": {
+        "Type": "AWS::CertificateManager::Certificate",
+        "Properties": {
+          "DomainName": "artifact.nikovirtala.dev",
+          "DomainValidationOptions": [
+            {
+              "DomainName": "artifact.nikovirtala.dev",
+              "HostedZoneId": {
+                "Fn::ImportValue": "artifact-prod-dns:ExportsOutputRefZoneA5DE4B6864A9A0D8"
+              }
+            }
+          ],
+          "SubjectAlternativeNames": [
+            "*.artifact.nikovirtala.dev"
+          ],
+          "Tags": [
+            {
+              "Key": "Name",
+              "Value": "prod/Certificate/ViewCertificate/Certificate"
+            }
+          ],
+          "ValidationMethod": "DNS"
+        }
+      }
+    },
+    "Parameters": {
+      "BootstrapVersion": {
+        "Type": "AWS::SSM::Parameter::Value<String>",
+        "Default": "/cdk-bootstrap/hnb659fds/version",
+        "Description": "Version of the CDK Bootstrap resources in this environment, automatically retrieved from SSM Parameter Store. [cdk:skip]"
+      }
+    },
+    "Rules": {
+      "CheckBootstrapVersion": {
+        "Assertions": [
+          {
+            "Assert": {
+              "Fn::Not": [
+                {
+                  "Fn::Contains": [
+                    [
+                      "1",
+                      "2",
+                      "3",
+                      "4",
+                      "5"
+                    ],
+                    {
+                      "Ref": "BootstrapVersion"
+                    }
+                  ]
+                }
+              ]
+            },
+            "AssertDescription": "CDK bootstrap stack version 6 required. Please run 'cdk bootstrap' with a recent version of the CDK CLI."
+          }
+        ]
+      }
+    }
+  },
+  "platform": {
+    "Resources": {
+      "ArtifactsBucket88671897": {
+        "Type": "AWS::S3::Bucket",
+        "Properties": {
+          "BucketEncryption": {
+            "ServerSideEncryptionConfiguration": [
+              {
+                "ServerSideEncryptionByDefault": {
+                  "SSEAlgorithm": "AES256"
+                }
+              }
+            ]
+          },
+          "LifecycleConfiguration": {
+            "Rules": [
+              {
+                "AbortIncompleteMultipartUpload": {
+                  "DaysAfterInitiation": 1
+                },
+                "Status": "Enabled"
+              }
+            ]
+          },
+          "OwnershipControls": {
+            "Rules": [
+              {
+                "ObjectOwnership": "BucketOwnerEnforced"
+              }
+            ]
+          },
+          "PublicAccessBlockConfiguration": {
+            "BlockPublicAcls": true,
+            "BlockPublicPolicy": true,
+            "IgnorePublicAcls": true,
+            "RestrictPublicBuckets": true
+          }
+        },
+        "UpdateReplacePolicy": "Retain",
+        "DeletionPolicy": "Retain"
+      },
+      "ArtifactsBucketPolicyBC103148": {
+        "Type": "AWS::S3::BucketPolicy",
+        "Properties": {
+          "Bucket": {
+            "Ref": "ArtifactsBucket88671897"
+          },
+          "PolicyDocument": {
+            "Statement": [
+              {
+                "Action": "s3:*",
+                "Condition": {
+                  "Bool": {
+                    "aws:SecureTransport": "false"
+                  }
+                },
+                "Effect": "Deny",
+                "Principal": {
+                  "AWS": "*"
+                },
+                "Resource": [
+                  {
+                    "Fn::GetAtt": [
+                      "ArtifactsBucket88671897",
+                      "Arn"
+                    ]
+                  },
+                  {
+                    "Fn::Join": [
+                      "",
+                      [
+                        {
+                          "Fn::GetAtt": [
+                            "ArtifactsBucket88671897",
+                            "Arn"
+                          ]
+                        },
+                        "/*"
+                      ]
+                    ]
+                  }
+                ]
+              },
+              {
+                "Action": "s3:*",
+                "Condition": {
+                  "NumericLessThan": {
+                    "s3:TlsVersion": 1.2
+                  }
+                },
+                "Effect": "Deny",
+                "Principal": {
+                  "AWS": "*"
+                },
+                "Resource": [
+                  {
+                    "Fn::GetAtt": [
+                      "ArtifactsBucket88671897",
+                      "Arn"
+                    ]
+                  },
+                  {
+                    "Fn::Join": [
+                      "",
+                      [
+                        {
+                          "Fn::GetAtt": [
+                            "ArtifactsBucket88671897",
+                            "Arn"
+                          ]
+                        },
+                        "/*"
+                      ]
+                    ]
+                  }
+                ]
+              }
+            ],
+            "Version": "2012-10-17"
+          }
+        }
+      },
+      "ArtifactsUserPool7CD5D19D": {
+        "Type": "AWS::Cognito::UserPool",
+        "Properties": {
+          "AccountRecoverySetting": {
+            "RecoveryMechanisms": [
+              {
+                "Name": "verified_email",
+                "Priority": 1
+              }
+            ]
+          },
+          "AdminCreateUserConfig": {
+            "AllowAdminCreateUserOnly": true
+          },
+          "AutoVerifiedAttributes": [
+            "email"
+          ],
+          "EmailVerificationMessage": "The verification code to your new account is {####}",
+          "EmailVerificationSubject": "Verify your new account",
+          "SmsVerificationMessage": "The verification code to your new account is {####}",
+          "UsernameAttributes": [
+            "email"
+          ],
+          "VerificationMessageTemplate": {
+            "DefaultEmailOption": "CONFIRM_WITH_CODE",
+            "EmailMessage": "The verification code to your new account is {####}",
+            "EmailSubject": "Verify your new account",
+            "SmsMessage": "The verification code to your new account is {####}"
+          }
+        },
+        "UpdateReplacePolicy": "Delete",
+        "DeletionPolicy": "Delete"
+      },
+      "ArtifactsTokenSecret9EA958A3": {
+        "Type": "AWS::SecretsManager::Secret",
+        "Properties": {
+          "SecretString": "{\"version\":1,\"tokens\":[]}"
+        },
+        "UpdateReplacePolicy": "Delete",
+        "DeletionPolicy": "Delete"
+      },
+      "ArtifactsControlLogGroupC89DF505": {
+        "Type": "AWS::Logs::LogGroup",
+        "Properties": {
+          "RetentionInDays": 30
+        },
+        "UpdateReplacePolicy": "Delete",
+        "DeletionPolicy": "Delete"
+      },
+      "ArtifactsControlRole58A4B7B4": {
+        "Type": "AWS::IAM::Role",
+        "Properties": {
+          "AssumeRolePolicyDocument": {
+            "Statement": [
+              {
+                "Action": "sts:AssumeRole",
+                "Effect": "Allow",
+                "Principal": {
+                  "Service": "lambda.amazonaws.com"
+                }
+              }
+            ],
+            "Version": "2012-10-17"
+          }
+        }
+      },
+      "ArtifactsControlRoleDefaultPolicyDEEF4239": {
+        "Type": "AWS::IAM::Policy",
+        "Properties": {
+          "PolicyDocument": {
+            "Statement": [
+              {
+                "Action": [
+                  "s3:GetObject",
+                  "s3:PutObject",
+                  "s3:DeleteObject"
+                ],
+                "Effect": "Allow",
+                "Resource": {
+                  "Fn::Join": [
+                    "",
+                    [
+                      {
+                        "Fn::GetAtt": [
+                          "ArtifactsBucket88671897",
+                          "Arn"
+                        ]
+                      },
+                      "/*"
+                    ]
+                  ]
+                }
+              },
+              {
+                "Action": "s3:ListBucket",
+                "Effect": "Allow",
+                "Resource": {
+                  "Fn::GetAtt": [
+                    "ArtifactsBucket88671897",
+                    "Arn"
+                  ]
+                }
+              },
+              {
+                "Action": [
+                  "logs:CreateLogStream",
+                  "logs:PutLogEvents"
+                ],
+                "Effect": "Allow",
+                "Resource": {
+                  "Fn::GetAtt": [
+                    "ArtifactsControlLogGroupC89DF505",
+                    "Arn"
+                  ]
+                }
+              },
+              {
+                "Action": "secretsmanager:GetSecretValue",
+                "Effect": "Allow",
+                "Resource": {
+                  "Ref": "ArtifactsTokenSecret9EA958A3"
+                }
+              }
+            ],
+            "Version": "2012-10-17"
+          },
+          "PolicyName": "ArtifactsControlRoleDefaultPolicyDEEF4239",
+          "Roles": [
+            {
+              "Ref": "ArtifactsControlRole58A4B7B4"
+            }
+          ]
+        }
+      },
+      "ArtifactsControlFunction6419B95E": {
+        "Type": "AWS::Lambda::Function",
+        "Properties": {
+          "Architectures": [
+            "arm64"
+          ],
+          "Code": {
+            "S3Bucket": "cdk-hnb659fds-assets-<account>-eu-north-1",
+            "S3Key": "<asset-hash>.zip"
+          },
+          "Environment": {
+            "Variables": {
+              "ARTIFACT_BUCKET": {
+                "Ref": "ArtifactsBucket88671897"
+              },
+              "ARTIFACT_VIEW_DOMAIN": "artifact.nikovirtala.dev",
+              "ARTIFACT_TOKEN_SECRET_ARN": {
+                "Ref": "ArtifactsTokenSecret9EA958A3"
+              },
+              "ARTIFACT_LIMITS": "{\"maxFileBytes\":3145728,\"maxPublishBytes\":3145728,\"maxFiles\":500}",
+              "ARTIFACT_MAX_BODY_BYTES": "4500000"
+            }
+          },
+          "Handler": "index.handler",
+          "LoggingConfig": {
+            "LogGroup": {
+              "Ref": "ArtifactsControlLogGroupC89DF505"
+            }
+          },
+          "MemorySize": 1024,
+          "Role": {
+            "Fn::GetAtt": [
+              "ArtifactsControlRole58A4B7B4",
+              "Arn"
+            ]
+          },
+          "Runtime": "nodejs24.x",
+          "Timeout": 30
+        },
+        "DependsOn": [
+          "ArtifactsControlRoleDefaultPolicyDEEF4239",
+          "ArtifactsControlRole58A4B7B4"
+        ]
+      },
+      "ArtifactsSweepLogGroup974FC00E": {
+        "Type": "AWS::Logs::LogGroup",
+        "Properties": {
+          "RetentionInDays": 30
+        },
+        "UpdateReplacePolicy": "Delete",
+        "DeletionPolicy": "Delete"
+      },
+      "ArtifactsSweepRoleA1B2D8B0": {
+        "Type": "AWS::IAM::Role",
+        "Properties": {
+          "AssumeRolePolicyDocument": {
+            "Statement": [
+              {
+                "Action": "sts:AssumeRole",
+                "Effect": "Allow",
+                "Principal": {
+                  "Service": "lambda.amazonaws.com"
+                }
+              }
+            ],
+            "Version": "2012-10-17"
+          }
+        }
+      },
+      "ArtifactsSweepRoleDefaultPolicy3FC95022": {
+        "Type": "AWS::IAM::Policy",
+        "Properties": {
+          "PolicyDocument": {
+            "Statement": [
+              {
+                "Action": [
+                  "s3:GetObject",
+                  "s3:PutObject",
+                  "s3:DeleteObject"
+                ],
+                "Effect": "Allow",
+                "Resource": {
+                  "Fn::Join": [
+                    "",
+                    [
+                      {
+                        "Fn::GetAtt": [
+                          "ArtifactsBucket88671897",
+                          "Arn"
+                        ]
+                      },
+                      "/*"
+                    ]
+                  ]
+                }
+              },
+              {
+                "Action": "s3:ListBucket",
+                "Effect": "Allow",
+                "Resource": {
+                  "Fn::GetAtt": [
+                    "ArtifactsBucket88671897",
+                    "Arn"
+                  ]
+                }
+              },
+              {
+                "Action": [
+                  "logs:CreateLogStream",
+                  "logs:PutLogEvents"
+                ],
+                "Effect": "Allow",
+                "Resource": {
+                  "Fn::GetAtt": [
+                    "ArtifactsSweepLogGroup974FC00E",
+                    "Arn"
+                  ]
+                }
+              }
+            ],
+            "Version": "2012-10-17"
+          },
+          "PolicyName": "ArtifactsSweepRoleDefaultPolicy3FC95022",
+          "Roles": [
+            {
+              "Ref": "ArtifactsSweepRoleA1B2D8B0"
+            }
+          ]
+        }
+      },
+      "ArtifactsSweepFunction94CC610E": {
+        "Type": "AWS::Lambda::Function",
+        "Properties": {
+          "Architectures": [
+            "arm64"
+          ],
+          "Code": {
+            "S3Bucket": "cdk-hnb659fds-assets-<account>-eu-north-1",
+            "S3Key": "<asset-hash>.zip"
+          },
+          "Environment": {
+            "Variables": {
+              "ARTIFACT_BUCKET": {
+                "Ref": "ArtifactsBucket88671897"
+              },
+              "ARTIFACT_LIMITS": "{\"maxFileBytes\":3145728,\"maxPublishBytes\":3145728,\"maxFiles\":500}"
+            }
+          },
+          "Handler": "index.handler",
+          "LoggingConfig": {
+            "LogGroup": {
+              "Ref": "ArtifactsSweepLogGroup974FC00E"
+            }
+          },
+          "MemorySize": 512,
+          "Role": {
+            "Fn::GetAtt": [
+              "ArtifactsSweepRoleA1B2D8B0",
+              "Arn"
+            ]
+          },
+          "Runtime": "nodejs24.x",
+          "Timeout": 300
+        },
+        "DependsOn": [
+          "ArtifactsSweepRoleDefaultPolicy3FC95022",
+          "ArtifactsSweepRoleA1B2D8B0"
+        ]
+      },
+      "ArtifactsApiCertificate78050B1A": {
+        "Type": "AWS::CertificateManager::Certificate",
+        "Properties": {
+          "DomainName": "api.artifact.nikovirtala.dev",
+          "DomainValidationOptions": [
+            {
+              "DomainName": "api.artifact.nikovirtala.dev",
+              "HostedZoneId": {
+                "Fn::GetAtt": [
+                  "ExportsReader8B249524",
+                  "/cdk/exports/artifact-prod-platform/artifactproddnsuseast1RefZoneA5DE4B68B92B0AA2"
+                ]
+              }
+            }
+          ],
+          "Tags": [
+            {
+              "Key": "Name",
+              "Value": "prod/Platform/Artifacts/ApiCertificate"
+            }
+          ],
+          "ValidationMethod": "DNS"
+        }
+      },
+      "ArtifactsApiDomainNameB8E3FA4C": {
+        "Type": "AWS::ApiGatewayV2::DomainName",
+        "Properties": {
+          "DomainName": "api.artifact.nikovirtala.dev",
+          "DomainNameConfigurations": [
+            {
+              "CertificateArn": {
+                "Ref": "ArtifactsApiCertificate78050B1A"
+              },
+              "EndpointType": "REGIONAL",
+              "SecurityPolicy": "TLS_1_2"
+            }
+          ]
+        }
+      },
+      "ArtifactsApiAliasRecord6CD80E34": {
+        "Type": "AWS::Route53::RecordSet",
+        "Properties": {
+          "AliasTarget": {
+            "DNSName": {
+              "Fn::GetAtt": [
+                "ArtifactsApiDomainNameB8E3FA4C",
+                "RegionalDomainName"
+              ]
+            },
+            "HostedZoneId": {
+              "Fn::GetAtt": [
+                "ArtifactsApiDomainNameB8E3FA4C",
+                "RegionalHostedZoneId"
+              ]
+            }
+          },
+          "HostedZoneId": {
+            "Fn::GetAtt": [
+              "ExportsReader8B249524",
+              "/cdk/exports/artifact-prod-platform/artifactproddnsuseast1RefZoneA5DE4B68B92B0AA2"
+            ]
+          },
+          "Name": "api.artifact.nikovirtala.dev.",
+          "Type": "A"
+        }
+      },
+      "ArtifactsHttpApi22E319BD": {
+        "Type": "AWS::ApiGatewayV2::Api",
+        "Properties": {
+          "DisableExecuteApiEndpoint": true,
+          "Name": "HttpApi",
+          "ProtocolType": "HTTP"
+        }
+      },
+      "ArtifactsHttpApiANYapiControlIntegrationABFD8BE2": {
+        "Type": "AWS::ApiGatewayV2::Integration",
+        "Properties": {
+          "ApiId": {
+            "Ref": "ArtifactsHttpApi22E319BD"
+          },
+          "IntegrationType": "AWS_PROXY",
+          "IntegrationUri": {
+            "Fn::GetAtt": [
+              "ArtifactsControlFunction6419B95E",
+              "Arn"
+            ]
+          },
+          "PayloadFormatVersion": "2.0"
+        }
+      },
+      "ArtifactsHttpApiANYapiControlIntegrationPermissionD1754C56": {
+        "Type": "AWS::Lambda::Permission",
+        "Properties": {
+          "Action": "lambda:InvokeFunction",
+          "FunctionName": {
+            "Fn::GetAtt": [
+              "ArtifactsControlFunction6419B95E",
+              "Arn"
+            ]
+          },
+          "Principal": "apigateway.amazonaws.com",
+          "SourceArn": {
+            "Fn::Join": [
+              "",
+              [
+                "arn:",
+                {
+                  "Ref": "AWS::Partition"
+                },
+                ":execute-api:eu-north-1:<account>:",
+                {
+                  "Ref": "ArtifactsHttpApi22E319BD"
+                },
+                "/*/*/api"
+              ]
+            ]
+          }
+        }
+      },
+      "ArtifactsHttpApiANYapi177F422B": {
+        "Type": "AWS::ApiGatewayV2::Route",
+        "Properties": {
+          "ApiId": {
+            "Ref": "ArtifactsHttpApi22E319BD"
+          },
+          "AuthorizationType": "NONE",
+          "RouteKey": "ANY /api",
+          "Target": {
+            "Fn::Join": [
+              "",
+              [
+                "integrations/",
+                {
+                  "Ref": "ArtifactsHttpApiANYapiControlIntegrationABFD8BE2"
+                }
+              ]
+            ]
+          }
+        }
+      },
+      "ArtifactsHttpApiANYapiproxyControlIntegrationPermission9B64254A": {
+        "Type": "AWS::Lambda::Permission",
+        "Properties": {
+          "Action": "lambda:InvokeFunction",
+          "FunctionName": {
+            "Fn::GetAtt": [
+              "ArtifactsControlFunction6419B95E",
+              "Arn"
+            ]
+          },
+          "Principal": "apigateway.amazonaws.com",
+          "SourceArn": {
+            "Fn::Join": [
+              "",
+              [
+                "arn:",
+                {
+                  "Ref": "AWS::Partition"
+                },
+                ":execute-api:eu-north-1:<account>:",
+                {
+                  "Ref": "ArtifactsHttpApi22E319BD"
+                },
+                "/*/*/api/{proxy+}"
+              ]
+            ]
+          }
+        }
+      },
+      "ArtifactsHttpApiANYapiproxy3101D30E": {
+        "Type": "AWS::ApiGatewayV2::Route",
+        "Properties": {
+          "ApiId": {
+            "Ref": "ArtifactsHttpApi22E319BD"
+          },
+          "AuthorizationType": "NONE",
+          "RouteKey": "ANY /api/{proxy+}",
+          "Target": {
+            "Fn::Join": [
+              "",
+              [
+                "integrations/",
+                {
+                  "Ref": "ArtifactsHttpApiANYapiControlIntegrationABFD8BE2"
+                }
+              ]
+            ]
+          }
+        }
+      },
+      "ArtifactsHttpApiANYmcpControlIntegrationPermissionD4CC31E2": {
+        "Type": "AWS::Lambda::Permission",
+        "Properties": {
+          "Action": "lambda:InvokeFunction",
+          "FunctionName": {
+            "Fn::GetAtt": [
+              "ArtifactsControlFunction6419B95E",
+              "Arn"
+            ]
+          },
+          "Principal": "apigateway.amazonaws.com",
+          "SourceArn": {
+            "Fn::Join": [
+              "",
+              [
+                "arn:",
+                {
+                  "Ref": "AWS::Partition"
+                },
+                ":execute-api:eu-north-1:<account>:",
+                {
+                  "Ref": "ArtifactsHttpApi22E319BD"
+                },
+                "/*/*/mcp"
+              ]
+            ]
+          }
+        }
+      },
+      "ArtifactsHttpApiANYmcp66D2C716": {
+        "Type": "AWS::ApiGatewayV2::Route",
+        "Properties": {
+          "ApiId": {
+            "Ref": "ArtifactsHttpApi22E319BD"
+          },
+          "AuthorizationType": "NONE",
+          "RouteKey": "ANY /mcp",
+          "Target": {
+            "Fn::Join": [
+              "",
+              [
+                "integrations/",
+                {
+                  "Ref": "ArtifactsHttpApiANYapiControlIntegrationABFD8BE2"
+                }
+              ]
+            ]
+          }
+        }
+      },
+      "ArtifactsAccessLogGroup8236FFAA": {
+        "Type": "AWS::Logs::LogGroup",
+        "Properties": {
+          "RetentionInDays": 30
+        },
+        "UpdateReplacePolicy": "Delete",
+        "DeletionPolicy": "Delete"
+      },
+      "ArtifactsDefaultStageF40FC413": {
+        "Type": "AWS::ApiGatewayV2::Stage",
+        "Properties": {
+          "AccessLogSettings": {
+            "DestinationArn": {
+              "Fn::GetAtt": [
+                "ArtifactsAccessLogGroup8236FFAA",
+                "Arn"
+              ]
+            },
+            "Format": "{\"requestId\":\"$context.requestId\",\"time\":\"$context.requestTimeEpoch\",\"method\":\"$context.httpMethod\",\"path\":\"$context.path\",\"routeKey\":\"$context.routeKey\",\"protocol\":\"$context.protocol\",\"status\":\"$context.status\",\"responseLength\":\"$context.responseLength\",\"latency\":\"$context.responseLatency\",\"integrationLatency\":\"$context.integrationLatency\",\"integrationStatus\":\"$context.integrationStatus\",\"integrationError\":\"$context.integrationErrorMessage\",\"error\":\"$context.error.message\",\"sourceIp\":\"$context.identity.sourceIp\",\"domain\":\"$context.domainName\"}"
+          },
+          "ApiId": {
+            "Ref": "ArtifactsHttpApi22E319BD"
+          },
+          "AutoDeploy": true,
+          "DefaultRouteSettings": {
+            "ThrottlingBurstLimit": 40,
+            "ThrottlingRateLimit": 20
+          },
+          "StageName": "$default"
+        },
+        "DependsOn": [
+          "ArtifactsApiDomainNameB8E3FA4C"
+        ]
+      },
+      "ArtifactsDefaultStageprodPlatformArtifactsApiDomainNameundefinedAE1B45AE": {
+        "Type": "AWS::ApiGatewayV2::ApiMapping",
+        "Properties": {
+          "ApiId": {
+            "Ref": "ArtifactsHttpApi22E319BD"
+          },
+          "DomainName": {
+            "Ref": "ArtifactsApiDomainNameB8E3FA4C"
+          },
+          "Stage": "$default"
+        },
+        "DependsOn": [
+          "ArtifactsApiDomainNameB8E3FA4C",
+          "ArtifactsDefaultStageF40FC413"
+        ]
+      },
+      "ArtifactsSchedulerRole5450C889": {
+        "Type": "AWS::IAM::Role",
+        "Properties": {
+          "AssumeRolePolicyDocument": {
+            "Statement": [
+              {
+                "Action": "sts:AssumeRole",
+                "Condition": {
+                  "StringEquals": {
+                    "aws:SourceAccount": "<account>"
+                  }
+                },
+                "Effect": "Allow",
+                "Principal": {
+                  "Service": "scheduler.amazonaws.com"
+                }
+              }
+            ],
+            "Version": "2012-10-17"
+          }
+        }
+      },
+      "ArtifactsSchedulerRoleDefaultPolicy8CE15617": {
+        "Type": "AWS::IAM::Policy",
+        "Properties": {
+          "PolicyDocument": {
+            "Statement": [
+              {
+                "Action": "lambda:InvokeFunction",
+                "Effect": "Allow",
+                "Resource": [
+                  {
+                    "Fn::GetAtt": [
+                      "ArtifactsSweepFunction94CC610E",
+                      "Arn"
+                    ]
+                  },
+                  {
+                    "Fn::Join": [
+                      "",
+                      [
+                        {
+                          "Fn::GetAtt": [
+                            "ArtifactsSweepFunction94CC610E",
+                            "Arn"
+                          ]
+                        },
+                        ":*"
+                      ]
+                    ]
+                  }
+                ]
+              }
+            ],
+            "Version": "2012-10-17"
+          },
+          "PolicyName": "ArtifactsSchedulerRoleDefaultPolicy8CE15617",
+          "Roles": [
+            {
+              "Ref": "ArtifactsSchedulerRole5450C889"
+            }
+          ]
+        }
+      },
+      "ArtifactsSweepScheduleDD12B81F": {
+        "Type": "AWS::Scheduler::Schedule",
+        "Properties": {
+          "FlexibleTimeWindow": {
+            "Mode": "OFF"
+          },
+          "ScheduleExpression": "rate(1 day)",
+          "ScheduleExpressionTimezone": "Etc/UTC",
+          "State": "ENABLED",
+          "Target": {
+            "Arn": {
+              "Fn::GetAtt": [
+                "ArtifactsSweepFunction94CC610E",
+                "Arn"
+              ]
+            },
+            "Input": "{\"task\":\"sweep\"}",
+            "RetryPolicy": {
+              "MaximumEventAgeInSeconds": 3600,
+              "MaximumRetryAttempts": 2
+            },
+            "RoleArn": {
+              "Fn::GetAtt": [
+                "ArtifactsSchedulerRole5450C889",
+                "Arn"
+              ]
+            }
+          }
+        }
+      },
+      "ExportsReader8B249524": {
+        "Type": "Custom::CrossRegionExportReader",
+        "Properties": {
+          "ServiceToken": {
+            "Fn::GetAtt": [
+              "CustomCrossRegionExportReaderCustomResourceProviderHandler46647B68",
+              "Arn"
+            ]
+          },
+          "ReaderProps": {
+            "region": "eu-north-1",
+            "prefix": "artifact-prod-platform",
+            "imports": {
+              "/cdk/exports/artifact-prod-platform/artifactproddnsuseast1RefZoneA5DE4B68B92B0AA2": "{{resolve:ssm:/cdk/exports/artifact-prod-platform/artifactproddnsuseast1RefZoneA5DE4B68B92B0AA2}}"
+            }
+          }
+        },
+        "UpdateReplacePolicy": "Delete",
+        "DeletionPolicy": "Delete"
+      },
+      "CustomCrossRegionExportReaderCustomResourceProviderRole10531BBD": {
+        "Type": "AWS::IAM::Role",
+        "Properties": {
+          "AssumeRolePolicyDocument": {
+            "Version": "2012-10-17",
+            "Statement": [
+              {
+                "Action": "sts:AssumeRole",
+                "Effect": "Allow",
+                "Principal": {
+                  "Service": "lambda.amazonaws.com"
+                }
+              }
+            ]
+          },
+          "ManagedPolicyArns": [
+            {
+              "Fn::Sub": "arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+            }
+          ],
+          "Policies": [
+            {
+              "PolicyName": "Inline",
+              "PolicyDocument": {
+                "Version": "2012-10-17",
+                "Statement": [
+                  {
+                    "Effect": "Allow",
+                    "Resource": {
+                      "Fn::Join": [
+                        "",
+                        [
+                          "arn:",
+                          {
+                            "Ref": "AWS::Partition"
+                          },
+                          ":ssm:eu-north-1:<account>:parameter/cdk/exports/artifact-prod-platform/*"
+                        ]
+                      ]
+                    },
+                    "Action": [
+                      "ssm:AddTagsToResource",
+                      "ssm:RemoveTagsFromResource",
+                      "ssm:GetParameters"
+                    ]
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "CustomCrossRegionExportReaderCustomResourceProviderHandler46647B68": {
+        "Type": "AWS::Lambda::Function",
+        "Properties": {
+          "Code": {
+            "S3Bucket": "cdk-hnb659fds-assets-<account>-eu-north-1",
+            "S3Key": "<asset-hash>.zip"
+          },
+          "Timeout": 900,
+          "MemorySize": 128,
+          "Handler": "__entrypoint__.handler",
+          "Role": {
+            "Fn::GetAtt": [
+              "CustomCrossRegionExportReaderCustomResourceProviderRole10531BBD",
+              "Arn"
+            ]
+          },
+          "Runtime": "nodejs24.x"
+        },
+        "DependsOn": [
+          "CustomCrossRegionExportReaderCustomResourceProviderRole10531BBD"
+        ]
+      }
+    },
+    "Outputs": {
+      "ArtifactsApiUrlDB84C18F": {
+        "Value": "https://api.artifact.nikovirtala.dev"
+      },
+      "ArtifactsViewUrlDB38D6E0": {
+        "Value": "https://artifact.nikovirtala.dev/"
+      },
+      "ArtifactsTokenSecretArn8A6395B2": {
+        "Value": {
+          "Ref": "ArtifactsTokenSecret9EA958A3"
+        }
+      },
+      "ArtifactsBucketNameA6BBDB86": {
+        "Value": {
+          "Ref": "ArtifactsBucket88671897"
+        }
+      },
+      "ArtifactsControlLogGroupNameDA23D88B": {
+        "Value": {
+          "Ref": "ArtifactsControlLogGroupC89DF505"
+        }
+      },
+      "ArtifactsAccessLogGroupName82D350A0": {
+        "Value": {
+          "Ref": "ArtifactsAccessLogGroup8236FFAA"
+        }
+      },
+      "ArtifactsSweepFunctionName1C5032B5": {
+        "Value": {
+          "Ref": "ArtifactsSweepFunction94CC610E"
+        }
+      }
+    },
+    "Parameters": {
+      "BootstrapVersion": {
+        "Type": "AWS::SSM::Parameter::Value<String>",
+        "Default": "/cdk-bootstrap/hnb659fds/version",
+        "Description": "Version of the CDK Bootstrap resources in this environment, automatically retrieved from SSM Parameter Store. [cdk:skip]"
+      }
+    },
+    "Rules": {
+      "CheckBootstrapVersion": {
+        "Assertions": [
+          {
+            "Assert": {
+              "Fn::Not": [
+                {
+                  "Fn::Contains": [
+                    [
+                      "1",
+                      "2",
+                      "3",
+                      "4",
+                      "5"
+                    ],
+                    {
+                      "Ref": "BootstrapVersion"
+                    }
+                  ]
+                }
+              ]
+            },
+            "AssertDescription": "CDK bootstrap stack version 6 required. Please run 'cdk bootstrap' with a recent version of the CDK CLI."
+          }
+        ]
+      }
+    }
+  }
+}

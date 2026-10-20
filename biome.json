@@ -7,7 +7,11 @@
   },
   "files": {
     "ignoreUnknown": false,
-    "includes": ["**", "!test/cdk/fixtures/recommended-feature-flags.json"]
+    "includes": [
+      "**",
+      "!test/cdk/fixtures/recommended-feature-flags.json",
+      "!examples/personal/test/__snapshots__"
+    ]
   },
   "formatter": {
     "enabled": true,

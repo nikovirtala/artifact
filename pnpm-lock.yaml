@@ -228,6 +228,27 @@ importers:
         specifier: 7.0.2
         version: 7.0.2
 
+  examples/personal:
+    devDependencies:
+      '@nikovirtala/artifact':
+        specifier: workspace:*
+        version: link:../..
+      '@types/node':
+        specifier: ^24.19.2
+        version: 24.19.2
+      aws-cdk:
+        specifier: 2.1145.0
+        version: 2.1145.0
+      aws-cdk-lib:
+        specifier: 2.273.0
+        version: 2.273.0(constructs@10.8.1)
+      constructs:
+        specifier: 10.8.1
+        version: 10.8.1
+      typescript:
+        specifier: 7.0.2
+        version: 7.0.2
+
 packages:
 
   '@aws-cdk/asset-awscli-v1@2.2.292':

@@ -1,0 +1,29 @@
+# 0075. `examples/personal`: stages, DNS stack, strong cross-Region references, owners from the environment
+
+Status: Accepted (M9)
+
+## Context
+
+The plan asks for a reference consumer (`docs/01-plan-aws.md`, "Stages"): a pnpm workspace package depending on `workspace:*`, an `ArtifactStage extends Stage` built from a typed `StageConfig`, a `bin/app.ts` with a `stages` map, stack names derived from the stage name, and a snapshot test of its synth. The owner's decisions (`m9-owner-decisions.md`): one deployment account (named only in `lib/stages.ts`), one stage `prod` in eu-north-1 with the CloudFront certificate in us-east-1, view domain `artifact.nikovirtala.dev` and API host `api.artifact.nikovirtala.dev`; the parent zone `nikovirtala.dev` is in another account, so the app creates and retains a zone for the view domain and prints its name servers for the owner to delegate (decision 3); no email address is committed, owners come from CDK context or an environment variable (decision 4); the owner deploys from AWS CloudShell, the agent never deploys (decision 5). Synth must work without credentials.
+
+## Decision
+
+- **Layout.** `lib/stages.ts` holds the `stages` map and is the only file with the account id, the Region and the domains; it imports only types and `aws-cdk-lib` enums and builds nothing, so the scripts can read it. `lib/config.ts` has `StageConfig` and `ownersFromEnv`; `lib/app.ts` `buildApp(app, stages, owners, alarmEmail?)` creates one `ArtifactStage` per entry; `bin/app.ts` is the only caller and holds no literals.
+- **Stacks** of `ArtifactStage` (id = stage name):
+
+  | Stack id / name | Region | Contents |
+  | --- | --- | --- |
+  | `Dns` / `artifact-<stage>-dns` | `certificateRegion` (us-east-1) | `PublicHostedZone(viewDomain)` with `RemovalPolicy.RETAIN`; outputs `NameServers` (comma-joined) and `HostedZoneId` |
+  | `Certificate` / `artifact-<stage>-certificate` | us-east-1 | `ArtifactCertificate(viewDomain, zone)` |
+  | `Platform` / `artifact-<stage>-platform` | `region` (eu-north-1) | `ArtifactHosting` (construct id `Artifacts`) with the zone, the certificate as `viewDomain.certificate` (unreferenced until M10), `ArtifactIdentity.cognito({owners})`, the stage's removal policy, versions, log retention and limits, and `alarmEmail` |
+
+  The DNS stack lives in us-east-1, so every cross-Region reference (the zone now, the certificate in M10) flows one way, us-east-1 → the platform Region. The construct itself never creates zones.
+- **Cross-Region references.** All three stacks set `crossRegionReferences: true`. The `aws-cdk-lib` documentation says the feature creates custom resources in the producing and consuming stacks and marks it experimental. `cdk.json` sets no `@aws-cdk/core:defaultCrossStackReferences`, so the default **strong** references apply: ExportWriter/ExportReader custom resources write the values to SSM parameters in the consuming Region, which prevents the producing stack from being deleted while consumers exist ([`FEATURE_FLAGS.md`](https://github.com/aws/aws-cdk/blob/main/packages/aws-cdk-lib/cx-api/FEATURE_FLAGS.md), A21). That is wanted here: `cdk destroy prod/Dns` cannot pull the retained zone stack out from under `Platform`. The pinned `aws-cdk` 2.1145.0 recommends **weak** references (`Fn::GetStackOutput`, no extra infrastructure, since 2.254.0) for new apps; they are rejected for this app because the producing stack can then be deleted independently of its consumers. Should the experimental feature change, the fallback is `HostedZone.fromHostedZoneAttributes` in the platform stack with the zone id passed by hand.
+- **Owners from the environment.** `ARTIFACT_OWNERS` (comma-separated, required for any synth of the app; `ownersFromEnv` throws `set ARTIFACT_OWNERS to the owner email(s), comma-separated`) and the optional `ARTIFACT_ALARM_EMAIL`. An environment variable rather than CDK context keeps the addresses out of `cdk.context.json` and out of `-c` flags in shell history, and the deploy guide sets it once per session.
+- **Synth without credentials or lookups:** explicit `env` on every stack, the zone is created (no `fromLookup`), no context lookups. `cdk.json` runs `node --conditions=artifact-source bin/app.ts`, so the app uses `src/cdk` through the source condition (0073) and needs only `pnpm bundle`, not a full build.
+- **Scripts:** `typecheck`, `test`, `synth` (the owner's, with `ARTIFACT_OWNERS` from the shell), `synth:ci` (placeholder owner, `AWS_EC2_METADATA_DISABLED=true`, output `cdk.out.ci`) and `check` = typecheck + test + `synth:ci`. The root `pnpm check` ends with `pnpm --filter artifact-personal check`, so CI synthesizes the real app on every pull request.
+- **Snapshot test** (`test/app.test.ts`): the three templates of `buildApp` with the owner `owner@example.com`, with every 64-hex asset hash replaced by `<asset-hash>` and every occurrence of the stage's account by `<account>` (bootstrap role ARNs and the cross-Region export paths contain it), compared with `test/__snapshots__/prod.json` (`UPDATE_SNAPSHOTS=1` rewrites it; Biome ignores it). Further assertions: stack names, Regions, cross-Region references on all three, `RETAIN` on the zone and the bucket, the two DNS outputs, no email in the templates, a scan of `examples/` in which `lib/stages.ts` is the only file with a 12-digit number (test files may use the placeholders `123456789012` and `000000000000`), `lib/stages.ts` readable without `ARTIFACT_OWNERS`, and the root's copy of the `cdk init` recommended feature flags (the construct tests' strict pass, 0070) equal to the installed `aws-cdk`'s.
+
+## Consequences
+
+Deploy order: `prod/Dns`, then the owner delegates the zone and checks it, then `prod/Certificate prod/Platform` (ACM's DNS validation waits for the delegation). `cdk destroy` keeps the zone and, by default, the bucket. The account id appears in exactly one committed file.
