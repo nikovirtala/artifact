@@ -32,3 +32,17 @@ Follow [Conventional Commits 1.0.0](https://www.conventionalcommits.org/en/v1.0.
 - Description: imperative mood, lowercase, no trailing period, ≤72 characters.
 - Breaking changes: add `!` after the type/scope and a `BREAKING CHANGE:` footer explaining the impact and migration.
 - The body explains *why*, not *what*.
+
+## Pull requests
+
+- Open a **draft** pull request as soon as your branch has its first commit: push the branch and open the PR against `main` right away. Don't wait until the work is finished.
+- Push after every new commit (including `fixup!` commits and rebases, using `--force-with-lease`), so the PR always matches your local branch.
+- Keep the PR description up to date as the work changes: what the change does, why, what's still left, and how it was tested.
+- Mark the PR **ready for review** (remove draft status) only when all of these are true:
+  - the work is complete, with nothing left to do;
+  - the branch is rebased onto the latest `origin/main`, and every commit passes `git rebase --exec "<test command>" origin/main`;
+  - all `fixup!`/`squash!` commits are squashed;
+  - CI is green;
+  - the PR description is final.
+- To mark a PR ready, use `gh pr ready <number>` or the GraphQL `markPullRequestReadyForReview` mutation. The REST API can't remove draft status. If your environment can't run either, say so explicitly when you hand off, and ask the maintainer to click "Ready for review".
+- If more work is needed after review, you can move the PR back to draft while you make the changes, then mark it ready again.
