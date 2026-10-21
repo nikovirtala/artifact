@@ -15,6 +15,7 @@ import {
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
+import { renderEdgeFunction } from "../src/cdk/edge.ts";
 import { tarballAppFiles } from "./lib/tarball-app.ts";
 import { TS_SPECIFIER } from "./lib/ts-specifier.ts";
 
@@ -51,10 +52,13 @@ const nonEmptyLines = (text: string) => text.split("\n").filter((l) => l.trim() 
 
 type CfnResource = { Type: string; Properties: Record<string, unknown> };
 
+/** The four prebuilt bundles (docs/decisions/0068, 0079, 0082). */
+const BUNDLES = ["control", "sweep", "viewing", "session-keys"];
+
 /**
- * Exactly two `index.handler` functions on nodejs24.x/arm64 whose code is a cdk.out asset
- * directory holding index.mjs (other functions, CDK's auto-delete provider, are ignored).
- * Returns the asset directories.
+ * Exactly four `index.handler` functions (control, sweep, viewing, session-keys) on
+ * nodejs24.x/arm64 whose code is a cdk.out asset directory holding index.mjs (other functions,
+ * CDK's auto-delete and cross-Region providers, are ignored). Returns the asset directories.
  */
 function assetFunctions(outdir: string, stack: string): string[] {
   const template = JSON.parse(readFileSync(join(outdir, `${stack}.template.json`), "utf8")) as {
@@ -76,7 +80,9 @@ function assetFunctions(outdir: string, stack: string): string[] {
     }
     dirs.push(dir);
   }
-  if (dirs.length !== 2) throw new Error(`pack-test: ${stack} has ${dirs.length} asset functions`);
+  if (dirs.length !== BUNDLES.length) {
+    throw new Error(`pack-test: ${stack} has ${dirs.length} asset functions`);
+  }
   return dirs;
 }
 
@@ -119,7 +125,7 @@ function cdkApp(tarball: string): void {
     env: offlineEnv({ CDK_OUTDIR: "cdk.out" }),
   });
   assetFunctions(join(dir, "cdk.out"), "TarballApp");
-  console.log("pack-test: (b) an ESM CDK app synthesizes two prebuilt functions, no esbuild");
+  console.log("pack-test: (b) an ESM CDK app synthesizes four prebuilt functions, no esbuild");
 }
 
 /** (b2) TypeScript 5.9.3 consumers (node10 and nodenext, no skipLibCheck) and plain require. */
@@ -225,7 +231,7 @@ function initApp(tarball: string, dist: string): void {
   if (!existsSync(join(outdir, `${files.stackId}.template.json`))) {
     throw new Error(`pack-test: cdk init synth wrote no ${files.stackId}.template.json`);
   }
-  assetFunctions(outdir, files.stackId);
+  const functionDirs = assetFunctions(outdir, files.stackId);
 
   // The recommended feature flags of the template change nothing in the bucket policy.
   const template = JSON.parse(
@@ -262,15 +268,43 @@ function initApp(tarball: string, dist: string): void {
     throw new Error(`pack-test: unexpected bucket policy ${JSON.stringify(statements)}`);
   }
 
-  // Every deployed handler is byte-identical to a bundle in the tarball.
-  const bundles = ["control", "sweep"].map((name) =>
-    readFileSync(join(dist, "assets", name, "index.mjs")),
-  );
+  // Every deployed handler is byte-identical to a bundle in the tarball, one per bundle.
+  const bundles = BUNDLES.map((name) => readFileSync(join(dist, "assets", name, "index.mjs")));
   const assets = readdirSync(outdir)
     .filter((name) => name.startsWith("asset.") && existsSync(join(outdir, name, "index.mjs")))
     .map((name) => readFileSync(join(outdir, name, "index.mjs")));
-  if (assets.length !== 2 || !assets.every((a) => bundles.some((b) => b.equals(a)))) {
+  if (
+    assets.length !== BUNDLES.length ||
+    !assets.every((a) => bundles.some((b) => b.equals(a))) ||
+    !bundles.every((b) => assets.some((a) => a.equals(b)))
+  ) {
     throw new Error("pack-test: the synthesized assets differ from the tarball's bundles");
+  }
+  // The viewing asset ships reload-client.js next to index.mjs, which reload.ts reads at init.
+  const viewingBundle = readFileSync(join(dist, "assets", "viewing", "index.mjs"));
+  const viewingDir = functionDirs.find((dir) =>
+    readFileSync(join(dir, "index.mjs")).equals(viewingBundle),
+  );
+  const viewingFiles = viewingDir === undefined ? [] : readdirSync(viewingDir).sort();
+  if (
+    viewingDir === undefined ||
+    viewingFiles.join() !== "index.mjs,reload-client.js" ||
+    !readFileSync(join(viewingDir, "reload-client.js")).equals(
+      readFileSync(join(dist, "assets", "viewing", "reload-client.js")),
+    )
+  ) {
+    throw new Error(`pack-test: the viewing asset holds ${viewingFiles.join(", ")}`);
+  }
+  // The edge function is the tarball's file with the view domain substituted (0080).
+  const edge = Object.values(template.Resources).filter(
+    (r) => r.Type === "AWS::CloudFront::Function",
+  );
+  const expectedEdge = renderEdgeFunction(
+    readFileSync(join(dist, "assets", "edge", "viewer-request.js"), "utf8"),
+    "tarball.example.dev",
+  );
+  if (edge.length !== 1 || edge[0].Properties.FunctionCode !== expectedEdge) {
+    throw new Error("pack-test: the edge FunctionCode differs from the tarball's edge file");
   }
 
   // CloudFormation Validate ran on the synth and found nothing, warnings included (A20).
@@ -291,7 +325,7 @@ function initApp(tarball: string, dist: string): void {
     throw new Error(`pack-test: esbuild paths ${JSON.stringify(paths)}`);
   }
   console.log(
-    "pack-test: (b3) the cdk init app type-checks and synthesizes from the tarball; assets match, validation clean, esbuild only under tsx",
+    "pack-test: (b3) the cdk init app type-checks and synthesizes from the tarball; four assets and the edge code match, validation clean, esbuild only under tsx",
   );
 }
 let status = 1;
@@ -312,6 +346,10 @@ try {
     "package/dist/cdk/index.d.ts",
     "package/dist/assets/control/index.mjs",
     "package/dist/assets/sweep/index.mjs",
+    "package/dist/assets/viewing/index.mjs",
+    "package/dist/assets/viewing/reload-client.js",
+    "package/dist/assets/session-keys/index.mjs",
+    "package/dist/assets/edge/viewer-request.js",
     "package/README.md",
     "package/LICENSE",
     "package/package.json",
