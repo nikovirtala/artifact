@@ -179,12 +179,18 @@ importers:
         specifier: ^4.6.7
         version: 4.6.7
     devDependencies:
+      '@aws-sdk/client-cloudfront-keyvaluestore':
+        specifier: 3.1152.0
+        version: 3.1152.0
       '@aws-sdk/client-s3':
         specifier: 3.1152.0
         version: 3.1152.0
       '@aws-sdk/client-secrets-manager':
         specifier: 3.1152.0
         version: 3.1152.0
+      '@aws-sdk/signature-v4a':
+        specifier: 3.1138.0
+        version: 3.1138.0
       '@biomejs/biome':
         specifier: 2.5.15
         version: 2.5.15
@@ -290,6 +296,10 @@ packages:
     resolution: {integrity: sha512-Y0vfmEfjoY4Ufo9jx3bIRPH5+4v9N0+Re9Ti7xutufSzt58awStFt2QpCBulTYA5ZQF0FU2BY7HPJgN1d55cdw==}
     engines: {node: '>=20.0.0'}
 
+  '@aws-sdk/client-cloudfront-keyvaluestore@3.1152.0':
+    resolution: {integrity: sha512-a+86mThM2MFwDhwbQMF2K4/JaVepeDZpiYkPUODg8JM5EUWJCafa40RuWzpdJQwsQlFlXsWFJ+bx9L5Y6yVwhQ==}
+    engines: {node: '>=20.0.0'}
+
   '@aws-sdk/client-cloudwatch-logs@3.1152.0':
     resolution: {integrity: sha512-626LS/9YffzAUH68bvnyNwXo/WYtShhs7+X6kEH5ARTom1sSk3hHJmR9F+1zc50mHSfJNwYEbUNDmgC5vW4/Xg==}
     engines: {node: '>=20.0.0'}
@@ -356,6 +366,10 @@ packages:
 
   '@aws-sdk/signature-v4-multi-region@3.996.48':
     resolution: {integrity: sha512-cFDXfEbXaGwbnpvR/DyqfxfjxpjXVRVthQLgkwvcfDS5u3+8G9WSj1X1Ag/pTRg/QOeOno1Tq3ycEdrKsCUcOA==}
+    engines: {node: '>=20.0.0'}
+
+  '@aws-sdk/signature-v4a@3.1138.0':
+    resolution: {integrity: sha512-HMLRQOzl4KNOmP9vSZbY3AeKhhl4yG8ZSzVe4RuCsNfmcHZVB+BvuQ7dxvQByXr+caLzpfqGWkxMDNmdIfEb2Q==}
     engines: {node: '>=20.0.0'}
 
   '@aws-sdk/token-providers@3.1150.0':
@@ -621,6 +635,10 @@ packages:
 
   '@smithy/signature-v4@5.7.4':
     resolution: {integrity: sha512-tHy0K0VtqNd5Y7Y41h0a0Lhh0L1GzC08dTWg0F7vRJWFtTENg7IZikf3wQkanYIRdb7ngoIPMTmqgUi401fEeQ==}
+    engines: {node: '>=18.0.0'}
+
+  '@smithy/signature-v4a@3.6.2':
+    resolution: {integrity: sha512-M5CXsK13/spy3QNudWMdcccGZFU4AKV4/7ixZ4heoowpSgJwOWcfvrHPFTekxaOmrpFA4is/of6B1OPdPz/9Yg==}
     engines: {node: '>=18.0.0'}
 
   '@smithy/types@4.19.0':
@@ -1179,6 +1197,18 @@ snapshots:
       '@smithy/types': 4.19.0
       tslib: 2.8.1
 
+  '@aws-sdk/client-cloudfront-keyvaluestore@3.1152.0':
+    dependencies:
+      '@aws-sdk/core': 3.978.3
+      '@aws-sdk/credential-provider-node': 3.972.86
+      '@aws-sdk/signature-v4-multi-region': 3.996.48
+      '@aws-sdk/types': 3.974.6
+      '@smithy/core': 3.36.0
+      '@smithy/fetch-http-handler': 5.8.0
+      '@smithy/node-http-handler': 4.12.1
+      '@smithy/types': 4.19.0
+      tslib: 2.8.1
+
   '@aws-sdk/client-cloudwatch-logs@3.1152.0':
     dependencies:
       '@aws-sdk/core': 3.978.3
@@ -1357,6 +1387,11 @@ snapshots:
       '@aws-sdk/types': 3.974.6
       '@smithy/signature-v4': 5.7.4
       '@smithy/types': 4.19.0
+      tslib: 2.8.1
+
+  '@aws-sdk/signature-v4a@3.1138.0':
+    dependencies:
+      '@smithy/signature-v4a': 3.6.2
       tslib: 2.8.1
 
   '@aws-sdk/token-providers@3.1150.0':
@@ -1545,6 +1580,13 @@ snapshots:
   '@smithy/signature-v4@5.7.4':
     dependencies:
       '@smithy/core': 3.36.0
+      '@smithy/types': 4.19.0
+      tslib: 2.8.1
+
+  '@smithy/signature-v4a@3.6.2':
+    dependencies:
+      '@smithy/core': 3.36.0
+      '@smithy/signature-v4': 5.7.4
       '@smithy/types': 4.19.0
       tslib: 2.8.1
 
