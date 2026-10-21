@@ -2,6 +2,7 @@
 // external and the version inlined, importable with no package.json above them.
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { copyFileSync, mkdtempSync, readFileSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -80,6 +81,24 @@ describe("bundleAssets", () => {
 
   it("names no .ts module (the pack test's rule)", () => {
     for (const name of ["control", "sweep"]) assert.doesNotMatch(output(name), TS_SPECIFIER);
+  });
+
+  it("control and sweep sources are unchanged (the M9 hashes at a pinned version)", () => {
+    // Recorded at 55a26c0, the M9 state. The version is pinned, so this hashes sources only (a
+    // hash of dist/assets would change with every release version); a deliberate change to
+    // either bundle updates the fixture and says so in the commit.
+    const fixture = JSON.parse(
+      readFileSync(join(repo, "test", "fixtures", "m9-bundle-hashes.json"), "utf8"),
+    ) as { version: string; control: string; sweep: string };
+    assert.equal(VERSION, fixture.version);
+    const sha256 = (name: "control" | "sweep") =>
+      createHash("sha256")
+        .update(readFileSync(join(dir, "a", name, "index.mjs")))
+        .digest("hex");
+    assert.deepEqual(
+      { control: sha256("control"), sweep: sha256("sweep") },
+      { control: fixture.control, sweep: fixture.sweep },
+    );
   });
 
   it("is deterministic", () => {

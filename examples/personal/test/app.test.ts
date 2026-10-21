@@ -16,6 +16,7 @@ const here = fileURLToPath(new URL("..", import.meta.url));
 const examples = join(here, "..");
 const repo = join(examples, "..");
 const snapshotFile = join(here, "test", "__snapshots__", "prod.json");
+const m9File = join(here, "test", "__snapshots__", "m9-platform.json");
 const OWNER = "owner@example.com";
 const TWELVE_DIGITS = /\b\d{12}\b/;
 
@@ -45,6 +46,35 @@ describe("examples/personal", () => {
     if (process.env.UPDATE_SNAPSHOTS === "1") writeFileSync(snapshotFile, actual);
     assert.equal(actual, readFileSync(snapshotFile, "utf8"));
     assert.doesNotMatch(actual, TWELVE_DIGITS);
+  });
+
+  it("keeps every M9 resource", () => {
+    // m9-platform.json is prod.json as deployed by M9 (55a26c0), never regenerated. Each M9
+    // resource must keep its Type and its Properties, DeletionPolicy and UpdateReplacePolicy,
+    // so the update of the live stacks replaces nothing. IN_PLACE lists the resources whose
+    // Properties may change in place, with the reason.
+    const IN_PLACE: Record<string, Record<string, string>> = {};
+    type Resource = Record<
+      "Type" | "Properties" | "DeletionPolicy" | "UpdateReplacePolicy",
+      unknown
+    >;
+    type Templates = Record<string, { Resources: Record<string, Resource> }>;
+    const m9 = JSON.parse(readFileSync(m9File, "utf8")) as Templates;
+    const actual = JSON.parse(normalised(synth().stacks)) as Templates;
+    assert.deepEqual(Object.keys(m9), ["dns", "certificate", "platform"]);
+    for (const [stack, template] of Object.entries(m9)) {
+      for (const [id, before] of Object.entries(template.Resources)) {
+        const after = actual[stack].Resources[id];
+        assert.ok(after, `${stack}: ${id} is gone`);
+        assert.equal(after.Type, before.Type, `${stack}: ${id} Type`);
+        for (const key of ["DeletionPolicy", "UpdateReplacePolicy"] as const) {
+          assert.deepEqual(after[key], before[key], `${stack}: ${id} ${key}`);
+        }
+        if (IN_PLACE[stack]?.[id] === undefined) {
+          assert.deepEqual(after.Properties, before.Properties, `${stack}: ${id} Properties`);
+        }
+      }
+    }
   });
 
   it("derives stack names from the stage, in the right Regions, with cross-Region references", () => {
