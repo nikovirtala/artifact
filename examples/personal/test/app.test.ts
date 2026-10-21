@@ -104,10 +104,11 @@ describe("examples/personal", () => {
     Template.fromStack(prod.platform).hasResource("AWS::S3::Bucket", { DeletionPolicy: "Retain" });
   });
 
-  it("contains no owner but the placeholder", () => {
+  it("contains no email but the placeholder owner", () => {
+    // M10 creates a Cognito user per owner, so the placeholder now appears in the templates.
     const text = normalised(synth().stacks);
     const emails = text.match(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[a-z]{2,}/g) ?? [];
-    assert.deepEqual([...new Set(emails)], []);
+    assert.deepEqual([...new Set(emails)], [OWNER]);
     const owners = synth().prod.platform.artifacts.identity.owners;
     assert.deepEqual(owners, [OWNER]);
   });

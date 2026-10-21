@@ -232,7 +232,7 @@ export class ArtifactHosting extends Construct {
       autoDeleteObjects: destroy,
     });
 
-    this.identity = props.identity._bind(this);
+    this.identity = props.identity._bind(this, { viewDomain: config.viewDomain });
 
     // A CloudFormation update of this resource may re-apply SecretString and wipe the stored
     // tokens (0065): keep it exactly as it is; a construct test pins it.

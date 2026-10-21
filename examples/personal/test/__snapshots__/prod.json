@@ -389,6 +389,88 @@
         "UpdateReplacePolicy": "Delete",
         "DeletionPolicy": "Delete"
       },
+      "ArtifactsViewClientEE91FB48": {
+        "Type": "AWS::Cognito::UserPoolClient",
+        "Properties": {
+          "AllowedOAuthFlows": [
+            "code"
+          ],
+          "AllowedOAuthFlowsUserPoolClient": true,
+          "AllowedOAuthScopes": [
+            "openid",
+            "email"
+          ],
+          "CallbackURLs": [
+            "https://artifact.nikovirtala.dev/__artifact/callback"
+          ],
+          "ExplicitAuthFlows": [
+            "ALLOW_USER_SRP_AUTH",
+            "ALLOW_REFRESH_TOKEN_AUTH"
+          ],
+          "GenerateSecret": false,
+          "IdTokenValidity": 60,
+          "LogoutURLs": [
+            "https://artifact.nikovirtala.dev/"
+          ],
+          "PreventUserExistenceErrors": "ENABLED",
+          "SupportedIdentityProviders": [
+            "COGNITO"
+          ],
+          "TokenValidityUnits": {
+            "IdToken": "minutes"
+          },
+          "UserPoolId": {
+            "Ref": "ArtifactsUserPool7CD5D19D"
+          }
+        }
+      },
+      "ArtifactsLoginDomain5D76AD4A": {
+        "Type": "AWS::Cognito::UserPoolDomain",
+        "Properties": {
+          "Domain": "artifact-nikovirtala-dev-37f43323",
+          "ManagedLoginVersion": 2,
+          "UserPoolId": {
+            "Ref": "ArtifactsUserPool7CD5D19D"
+          }
+        }
+      },
+      "ArtifactsManagedLoginBranding97C4A406": {
+        "Type": "AWS::Cognito::ManagedLoginBranding",
+        "Properties": {
+          "ClientId": {
+            "Ref": "ArtifactsViewClientEE91FB48"
+          },
+          "UseCognitoProvidedValues": true,
+          "UserPoolId": {
+            "Ref": "ArtifactsUserPool7CD5D19D"
+          }
+        },
+        "DependsOn": [
+          "ArtifactsLoginDomain5D76AD4A"
+        ]
+      },
+      "ArtifactsOwnerc8cd3c642730034CB220": {
+        "Type": "AWS::Cognito::UserPoolUser",
+        "Properties": {
+          "DesiredDeliveryMediums": [
+            "EMAIL"
+          ],
+          "UserAttributes": [
+            {
+              "Name": "email",
+              "Value": "owner@example.com"
+            },
+            {
+              "Name": "email_verified",
+              "Value": "true"
+            }
+          ],
+          "UserPoolId": {
+            "Ref": "ArtifactsUserPool7CD5D19D"
+          },
+          "Username": "owner@example.com"
+        }
+      },
       "ArtifactsTokenSecret9EA958A3": {
         "Type": "AWS::SecretsManager::Secret",
         "Properties": {

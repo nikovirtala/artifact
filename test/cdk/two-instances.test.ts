@@ -24,6 +24,7 @@ import {
 const NAME_PROPS: Record<string, string[]> = {
   "AWS::S3::Bucket": ["BucketName"],
   "AWS::Cognito::UserPool": ["UserPoolName"],
+  "AWS::Cognito::UserPoolClient": ["ClientName"],
   "AWS::Lambda::Function": ["FunctionName"],
   "AWS::IAM::Role": ["RoleName"],
   "AWS::IAM::Policy": [],
@@ -65,6 +66,11 @@ describe("two instances", () => {
       template.resourceCountIs("AWS::S3::Bucket", 2);
       template.resourceCountIs("AWS::ApiGatewayV2::Api", 2);
       template.resourceCountIs("AWS::SecretsManager::Secret", 2);
+      const prefixes = resources(template, "AWS::Cognito::UserPoolDomain").map(
+        ([, d]) => d.Properties?.Domain,
+      );
+      assert.equal(prefixes.length, 2);
+      assert.equal(new Set(prefixes).size, 2);
       const outputs = Object.keys(template.toJSON().Outputs);
       assert.equal(new Set(outputs).size, outputs.length);
       assert.equal(outputs.filter((o) => o.startsWith("OneApiUrl")).length, 1);
