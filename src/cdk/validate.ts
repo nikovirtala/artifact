@@ -3,7 +3,9 @@
 // their environment but never re-validate domains. The AWS limits live here and only here
 // (docs/decisions/0066).
 import { Duration, RemovalPolicy, Token } from "aws-cdk-lib";
+import type { ICertificate } from "aws-cdk-lib/aws-certificatemanager";
 import type { IHostedZone } from "aws-cdk-lib/aws-route53";
+import { CLOUDFRONT_REGION } from "./certificate.ts";
 
 const MIB = 1024 * 1024;
 
@@ -42,6 +44,33 @@ export function domainName(path: string, value: unknown): string {
     throw new Error(`${path} must be a bare domain name, got ${JSON.stringify(value)}`);
   }
   return name;
+}
+
+/** The view domain: a bare domain name and a literal, because the edge function embeds it. */
+export function literalDomainName(path: string, value: unknown): string {
+  const name = domainName(path, value);
+  if (Token.isUnresolved(name)) {
+    throw new Error(`${path} must be a literal domain name (the edge function embeds it)`);
+  }
+  return name;
+}
+
+/**
+ * The CloudFront certificate rule (docs/decisions/0085). A given certificate with a literal ARN
+ * must be in CLOUDFRONT_REGION; a token ARN is accepted unchecked (CloudFront rejects another
+ * Region at deploy time). Without one, only a stack whose Region is literally CLOUDFRONT_REGION
+ * may create it: an environment-agnostic stack could deploy anywhere.
+ */
+export function checkViewCertificate(certificate: ICertificate | undefined, region: string): void {
+  if (certificate !== undefined) {
+    const arn = certificate.certificateArn;
+    if (!Token.isUnresolved(arn) && !arn.includes(`:${CLOUDFRONT_REGION}:`)) {
+      throw new Error(`viewDomain.certificate must be in ${CLOUDFRONT_REGION} (CloudFront)`);
+    }
+    return;
+  }
+  if (!Token.isUnresolved(region) && region === CLOUDFRONT_REGION) return;
+  throw new Error(`viewDomain.certificate is required unless the stack is in ${CLOUDFRONT_REGION}`);
 }
 
 /**

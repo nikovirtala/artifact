@@ -46,7 +46,9 @@ import {
   checkAlarmEmail,
   checkApiHost,
   checkInZone,
+  checkViewCertificate,
   domainName,
+  literalDomainName,
   type ResolvedLimits,
   type ResolvedRetention,
   resolveLimits,
@@ -60,7 +62,12 @@ export interface ArtifactViewDomain {
   readonly name: string;
   /** Holds `name`; must carry its `zoneName`. The API's records go here by default. */
   readonly hostedZone: IHostedZone;
-  /** The view certificate for CloudFront (`ArtifactCertificate`); unused until M10. */
+  /**
+   * The view certificate for CloudFront (`ArtifactCertificate`) for the apex and `*.<name>`, in
+   * US East (N. Virginia), the only Region CloudFront takes certificates from. Required unless
+   * this stack's Region is literally that Region, where one is created (also required in an
+   * environment-agnostic stack).
+   */
   readonly certificate?: ICertificate;
 }
 
@@ -92,6 +99,7 @@ export interface ArtifactDataRetention {
 }
 
 export interface ArtifactHostingProps {
+  /** `name` must be a literal: the edge function embeds it. */
   readonly viewDomain: ArtifactViewDomain;
   readonly apiDomain: ArtifactApiDomain;
   readonly identity: ArtifactIdentity;
@@ -118,13 +126,13 @@ type Config = {
   alarmEmail?: string;
 };
 
-function validate(props: ArtifactHostingProps): Config {
+function validate(props: ArtifactHostingProps, region: string): Config {
   if (!(props?.identity instanceof ArtifactIdentity)) {
     throw new Error(
       "identity must be an ArtifactIdentity, e.g. ArtifactIdentity.cognito({owners})",
     );
   }
-  const viewDomain = domainName("viewDomain.name", props.viewDomain?.name);
+  const viewDomain = literalDomainName("viewDomain.name", props.viewDomain?.name);
   const apiDomain = domainName("apiDomain.name", props.apiDomain?.name);
   checkApiHost(apiDomain, viewDomain);
   const viewZone = props.viewDomain.hostedZone;
@@ -136,6 +144,7 @@ function validate(props: ArtifactHostingProps): Config {
       : zoneNameOf("apiDomain.hostedZone", apiZone);
   checkInZone("viewDomain.name", viewDomain, viewZoneName);
   checkInZone("apiDomain.name", apiDomain, apiZoneName);
+  checkViewCertificate(props.viewDomain.certificate, region);
   return {
     viewDomain,
     apiDomain,
@@ -191,17 +200,24 @@ export class ArtifactHosting extends Construct {
   readonly pruneSchedule?: Schedule;
   readonly accessLogGroup: LogGroup;
   readonly identity: ArtifactIdentityBinding;
-  /** `viewDomain.certificate`, kept for M10's distribution. */
-  readonly viewCertificate?: ICertificate;
+  /** The distribution's certificate: `viewDomain.certificate`, or the one created here. */
+  readonly viewCertificate: ICertificate;
   /** Only with `alarmEmail`. */
   readonly alarmTopic?: Topic;
 
   constructor(scope: Construct, id: string, props: ArtifactHostingProps) {
     super(scope, id);
-    const config = validate(props);
+    const config = validate(props, Stack.of(this).region);
     this.apiUrl = `https://${config.apiDomain}`;
     this.viewUrl = `https://${config.viewDomain}/`;
-    this.viewCertificate = props.viewDomain.certificate;
+    // Only a stack in CloudFront's certificate Region gets here without one (checkViewCertificate).
+    this.viewCertificate =
+      props.viewDomain.certificate ??
+      new Certificate(this, "ViewCertificate", {
+        domainName: config.viewDomain,
+        subjectAlternativeNames: [`*.${config.viewDomain}`],
+        validation: CertificateValidation.fromDns(config.viewZone),
+      });
 
     const destroy = config.retention.onDestroy === RemovalPolicy.DESTROY;
     this.bucket = new Bucket(this, "Bucket", {

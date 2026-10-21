@@ -6,10 +6,19 @@ import { globSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
-import { App, RemovalPolicy, Stack } from "aws-cdk-lib";
+import { App, CfnParameter, RemovalPolicy, Stack } from "aws-cdk-lib";
 import { Template } from "aws-cdk-lib/assertions";
+import { Certificate } from "aws-cdk-lib/aws-certificatemanager";
 import { ArtifactHosting } from "../../src/cdk/index.ts";
-import { baseProps, createdZone, resources, testStack, testZone, VIEW } from "./helpers.ts";
+import {
+  baseProps,
+  createdZone,
+  resources,
+  testStack,
+  testZone,
+  VIEW,
+  viewCertificate,
+} from "./helpers.ts";
 
 /** Properties that would give a resource a physical name. */
 const NAME_PROPS: Record<string, string[]> = {
@@ -37,7 +46,7 @@ function two(destroy: boolean) {
   });
   new ArtifactHosting(stack, "Two", {
     ...baseProps(zone),
-    viewDomain: { name: `two.${VIEW}`, hostedZone: zone },
+    viewDomain: { name: `two.${VIEW}`, hostedZone: zone, certificate: viewCertificate(stack) },
     apiDomain: { name: `api.two.${VIEW}` },
     dataRetention,
   });
@@ -86,7 +95,14 @@ describe("environment-agnostic", () => {
 
   it("synthesizes a template without account or Region literals", () => {
     const stack = new Stack(new App(), "Agnostic");
-    new ArtifactHosting(stack, "Artifacts", baseProps(createdZone(stack)));
+    const zone = createdZone(stack);
+    const arn = new CfnParameter(stack, "CertArn").valueAsString;
+    const certificate = Certificate.fromCertificateArn(stack, "Cert", arn);
+    new ArtifactHosting(
+      stack,
+      "Artifacts",
+      baseProps(zone, { viewDomain: { name: VIEW, hostedZone: zone, certificate } }),
+    );
     const text = JSON.stringify(Template.fromStack(stack).toJSON());
     assert.doesNotMatch(text, /\b\d{12}\b/);
     assert.doesNotMatch(text, regionLiteral);

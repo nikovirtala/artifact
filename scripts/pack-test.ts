@@ -85,8 +85,9 @@ const appSource = (body: string[]) =>
     "const app = new App();",
     'const stack = new Stack(app, "TarballApp", { env: { account: "123456789012", region: "eu-north-1" } });',
     'const hostedZone = HostedZone.fromHostedZoneAttributes(stack, "Zone", { hostedZoneId: "Z0000000000000000000", zoneName: "example.dev" });',
+    'const certificate = Certificate.fromCertificateArn(stack, "Cert", "arn:aws:acm:us-east-1:123456789012:certificate/00000000-0000-0000-0000-000000000000");',
     'new ArtifactHosting(stack, "Artifacts", {',
-    '  viewDomain: { name: "tarball.example.dev", hostedZone },',
+    '  viewDomain: { name: "tarball.example.dev", hostedZone, certificate },',
     '  apiDomain: { name: "api.tarball.example.dev" },',
     '  identity: ArtifactIdentity.cognito({ owners: ["owner@example.com"] }),',
     "  dataRetention: { onDestroy: RemovalPolicy.DESTROY, versions: { keepLast: 2 } },",
@@ -105,6 +106,7 @@ function cdkApp(tarball: string): void {
   }
   const source = [
     'import { App, RemovalPolicy, Stack } from "aws-cdk-lib";',
+    'import { Certificate } from "aws-cdk-lib/aws-certificatemanager";',
     'import { HostedZone } from "aws-cdk-lib/aws-route53";',
     'import { ArtifactHosting, ArtifactIdentity } from "@nikovirtala/artifact/cdk";',
     appSource(["app.synth();", ""]),
@@ -125,6 +127,7 @@ function typescriptConsumers(dir: string): void {
   npm(["install", "typescript@5.9.3"], dir);
   const imports = [
     'import { App, RemovalPolicy, Stack } from "aws-cdk-lib";',
+    'import { Certificate } from "aws-cdk-lib/aws-certificatemanager";',
     'import { HostedZone } from "aws-cdk-lib/aws-route53";',
     'import { ArtifactHosting, ArtifactIdentity } from "@nikovirtala/artifact/cdk";',
   ];
@@ -144,6 +147,7 @@ function typescriptConsumers(dir: string): void {
   }
   const required = [
     'const { App, RemovalPolicy, Stack } = require("aws-cdk-lib");',
+    'const { Certificate } = require("aws-cdk-lib/aws-certificatemanager");',
     'const { HostedZone } = require("aws-cdk-lib/aws-route53");',
     'const { ArtifactHosting, ArtifactIdentity } = require("@nikovirtala/artifact/cdk");',
     appSource(["app.synth();", ""]),

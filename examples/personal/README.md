@@ -174,7 +174,7 @@ Run after (e) and before (h), while the zone exists. A fresh `cdk init` app depl
    import * as cdk from "aws-cdk-lib";
    import { TarballAppStack } from "../lib/tarball-app-stack";
    const app = new cdk.App();
-   new TarballAppStack(app, "TarballAppStack", { env: { account: process.env.CDK_DEFAULT_ACCOUNT, region: "eu-north-1" } });
+   new TarballAppStack(app, "TarballAppStack", { env: { account: process.env.CDK_DEFAULT_ACCOUNT, region: "us-east-1" } });
    ```
 
    and `lib/tarball-app-stack.ts` with:
@@ -212,16 +212,16 @@ Run after (e) and before (h), while the zone exists. A fresh `cdk init` app depl
 5. Check the scheduled prune: a temporary token, 4 versions, rollback to v1, the sweep function invoked with the prune schedule's exact input, then versions `[1,3,4]` with v1 current and version 2 gone:
 
    ```sh
-   cd "$REPO/examples/personal" && pnpm retention-check prune --stack TarballAppStack --region eu-north-1
+   cd "$REPO/examples/personal" && pnpm retention-check prune --stack TarballAppStack --region us-east-1
    ```
 
 6. Destroy it and check that `DESTROY` removed the bucket:
 
    ```sh
-   TBUCKET=$(aws cloudformation describe-stacks --region eu-north-1 --stack-name TarballAppStack --query "Stacks[0].Outputs[?starts_with(OutputKey,'ArtifactsBucketName')].OutputValue" --output text)
+   TBUCKET=$(aws cloudformation describe-stacks --region us-east-1 --stack-name TarballAppStack --query "Stacks[0].Outputs[?starts_with(OutputKey,'ArtifactsBucketName')].OutputValue" --output text)
    echo "$TBUCKET"
    cd /tmp/tarball-app && npx cdk destroy -c zoneName=artifact.nikovirtala.dev -c zoneId="$ZONE_ID" --force
-   cd "$REPO/examples/personal" && pnpm retention-check bucket --bucket "$TBUCKET" --region eu-north-1 --expect absent
+   cd "$REPO/examples/personal" && pnpm retention-check bucket --bucket "$TBUCKET" --region us-east-1 --expect absent
    ```
 
 ## Known limits
