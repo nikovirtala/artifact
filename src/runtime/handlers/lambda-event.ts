@@ -38,6 +38,36 @@ export function stripCookies<E extends { cookies?: unknown; headers?: Record<str
   return { ...rest, headers } as E;
 }
 
+/**
+ * A shallow copy with only the cookies named in `names`, in `cookies` and in every `Cookie`
+ * header (any case); either is dropped when nothing is left. The viewing Lambda lets the login
+ * routes see their transaction cookie and nothing else (docs/decisions/0082).
+ */
+export function keepCookies<E extends { cookies?: unknown; headers?: Record<string, unknown> }>(
+  event: E,
+  names: readonly string[],
+): E {
+  const keep = (pair: string) => names.includes(pair.split("=", 1)[0].trim());
+  const { cookies, ...rest } = event;
+  const kept = Array.isArray(cookies)
+    ? cookies.filter((c) => typeof c === "string" && keep(c))
+    : [];
+  const out: Record<string, unknown> = kept.length > 0 ? { ...rest, cookies: kept } : { ...rest };
+  if (rest.headers !== undefined) {
+    out.headers = Object.fromEntries(
+      Object.entries(rest.headers).flatMap(([name, value]): [string, unknown][] => {
+        if (name.toLowerCase() !== "cookie") return [[name, value]];
+        const pairs = String(value)
+          .split(";")
+          .map((p) => p.trim())
+          .filter((p) => p !== "" && keep(p));
+        return pairs.length > 0 ? [[name, pairs.join("; ")]] : [];
+      }),
+    );
+  }
+  return out as E;
+}
+
 /** `rawPath` + `rawQueryString` of the Lambda event that `hono/aws-lambda` puts in `c.env`. */
 export const lambdaRawTarget: RawTargetHook = (c) => {
   const event = (c.env as { event?: Partial<HttpApiEvent> } | undefined)?.event;

@@ -6,7 +6,8 @@
 import { readFileSync } from "node:fs";
 import { securityHeaders } from "./headers.ts";
 
-export type ReloadTransport = "sse";
+/** `none` has no entry in the client's transport table, so the page stays inert (0058, 0082). */
+export type ReloadTransport = "sse" | "none";
 
 export type ReloadClientConfig = {
   readonly transport: ReloadTransport;
