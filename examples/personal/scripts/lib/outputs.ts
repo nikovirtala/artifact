@@ -11,6 +11,17 @@ export const OUTPUT_NAMES = [
   "AccessLogGroupName",
   "SweepFunctionName",
   "PruneScheduleName",
+  "DistributionId",
+  "DistributionDomainName",
+  "ViewFunctionUrl",
+  "ViewLogGroupName",
+  "ViewerRequestFunctionName",
+  "KeyValueStoreArn",
+  "SessionSecretArn",
+  "SessionKeysLogGroupName",
+  "UserPoolId",
+  "UserPoolClientId",
+  "LoginDomainUrl",
 ] as const;
 export type OutputName = (typeof OUTPUT_NAMES)[number];
 
