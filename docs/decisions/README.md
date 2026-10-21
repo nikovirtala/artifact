@@ -83,3 +83,4 @@ One short file per decision, numbered in order. Status is **Accepted** (in effec
 | [0077](0077-version-from-tags.md) | Version releases from git tags and Conventional Commits | Accepted |
 | [0078](0078-session-cookie-and-keys.md) | Session cookie format, keys and shared test vectors | Accepted |
 | [0080](0080-edge-viewer-request-function.md) | Edge viewer-request function: host rules, session check, login passthrough, cookies stripped, `x-artifact-host` | Accepted |
+| [0081](0081-login-oidc-pkce.md) | Login: OIDC code + PKCE, transaction cookie, return validation and the login cache behaviour | Accepted |
