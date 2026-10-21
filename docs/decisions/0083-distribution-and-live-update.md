@@ -1,0 +1,41 @@
+# 0083. Distribution, policies, DNS and live-update safety
+
+Status: Accepted (M10)
+
+## Context
+
+The viewing plane serves `<view>` (the gallery and login) and `*.<view>` (one origin per artifact) through CloudFront, from the viewing Lambda's function URL (0082), with the edge function of 0080 on every request. The construct is already live as `prod/Platform`, which serves `api.<view>`. So the M10 resources must arrive as an in-place update that replaces nothing. Facts:
+
+- A viewer-request function runs before the cache lookup, and a header it adds can be part of the cache key and be forwarded by an origin request policy. For a function URL origin, `Host` must be the origin's, so the viewer's host travels in a custom header ([Determine function purpose](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/function-code-choose-purpose.html); [Managed origin request policies](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/using-managed-origin-request-policies.html); [Forward the host header](https://repost.aws/knowledge-center/configure-cloudfront-to-forward-headers)) (V7). An account may have 20 custom cache policies and 20 custom origin request policies ([Quotas](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/cloudfront-limits.html)).
+- OAC for a function URL needs `AuthType` `AWS_IAM`. CloudFront needs `lambda:InvokeFunctionUrl` and `lambda:InvokeFunction` with `SourceArn` = the distribution, and only `PUT` and `POST` need a payload hash ([Restrict access to a Lambda function URL origin](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/private-content-restricting-access-to-lambda.html)) (V7, F4).
+- CloudFront caches error responses for 10 seconds by default. With a minimum TTL of 0 it respects `no-cache` and `no-store` ([Error caching](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/custom-error-pages-expiration.html); [Expiration](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/Expiration.html)) (F7).
+- In Route 53 a specific name takes precedence over a wildcard, and a wildcard does not answer for the apex ([DNS domain name format](https://docs.aws.amazon.com/Route53/latest/DeveloperGuide/DomainNameFormat.html)) (V5). The live certificate already covers the apex and `*.<view>`, and it is in us-east-1 as CloudFront requires ([Alternate domain names](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/CNAMEs.html)) (F5).
+- CloudFront names (policies, KeyValueStores, OACs) are unique per account, and CDK's defaults add the Region only to the cache policy and the function names.
+- The live control and sweep bundles inline version 1.0.0. A checkout of `main` builds `0.0.0-development` (0077). So their asset hashes change on the next deploy whatever M10 does (facts "Live control/sweep code").
+
+## Decision
+
+- **Origin:** the function URL (construct id `ViewFunctionUrlResource`, not the design's `ViewFunctionUrl`: that is the id of the output, and CDK forbids two children with one id in one scope) behind an explicit `ViewOriginAccessControl` (CDK's settings: `lambda`, `always`, `sigv4`). It is explicit only so it gets a Region-carrying name. CDK adds the two invoke permissions. With an alias, the construct adds two more on the alias ARN (0082).
+- **`ViewCachePolicy`:** key on `x-artifact-host`, every query string and no cookie. TTLs are min 0, default 0 (a response without `Cache-Control` is never cached) and max one year. gzip and brotli normalisation are on. One custom cache policy per instance.
+- **`ViewOriginRequestPolicy`:** forwards `x-artifact-host` and the query, no cookie, never `Host`. **`LoginOriginRequestPolicy`:** the same, plus exactly the cookie `__Host-artifact_login` (0081). Two custom origin request policies per instance.
+- **Names:** the two origin request policies, the KeyValueStore and the OAC are named `Names.uniqueResourceName(hosting, {maxLength})` + `-<View|Login|Kvs|Oac>-` + the stack Region. That is at most 121 (policies) and 59 (KVS, OAC) characters. The names are distinct within one instance and across instances, and they carry no Region literal in an environment-agnostic stack.
+- **`Distribution`:** aliases `<view>` and `*.<view>`, the view certificate (0085), TLS 1.2 (2021), HTTP/2 and HTTP/3, IPv6, the default price class, no standard logging (the viewing log group is the origin record), no default root object. The default behaviour: `GET`/`HEAD`, redirect to HTTPS, the view policies, the viewer-request function, compression. `/__artifact/login`, `/__artifact/callback` and `/__artifact/logout` get their own behaviours with the managed `CachingDisabled` policy, the login origin request policy and no compression. Error responses 400, 403, 404, 405, 414, 416, 500–504 get an error-caching TTL of 0, with no custom page and no status change. A 401 comes only from the edge function and is never cached. The distribution depends on the `SessionKeys` custom resource (0079), so no edge serves traffic without keys.
+- **Records** in the view domain's zone: A and AAAA aliases for the apex (`ViewAliasRecord`, `ViewAliasRecordAaaa`) and for `*.<view>` (`ViewWildcardRecord`, `ViewWildcardRecordAaaa`). The `api` A record (`ArtifactsApiAliasRecord6CD80E34`) is untouched. It is a specific name, so the wildcard never answers for it. Because `api` has a record of some type, an AAAA query for it gets no data rather than the wildcard. Smoke S20 checks this live.
+- **Alarm:** with `alarmEmail`, `ViewErrorsAlarm` fires on any viewing function error in 5 minutes. CloudFront's own metrics are only in us-east-1, so there is no distribution alarm in the platform stack.
+- **Live update of `prod`** (`pnpm exec cdk deploy prod/Certificate prod/Platform`):
+
+  | Stack | Resource | Change |
+  | --- | --- | --- |
+  | prod/Platform | every M9 resource (bucket, bucket policy, token secret, user pool, API domain, certificate, record, HTTP API, its routes, stage and permissions, log groups, roles, policies, schedules) | none |
+  | prod/Platform | `ArtifactsControlFunction6419B95E`, `ArtifactsSweepFunction94CC610E` | `Code.S3Key` only, in place (the live code inlines 1.0.0, the checkout `0.0.0-development`); the sources are unchanged |
+  | prod/Platform | `ExportsReader8B249524` | in place: reads the certificate ARN as one more import |
+  | prod/Platform | the viewing plane, the Cognito client, domain, branding and owners (0084), the eleven outputs | added |
+  | prod/Certificate | `ViewCertificate5D8B1D9B` | none |
+  | prod/Certificate | the cross-Region export writer, its role and handler | added |
+  | prod/Dns | all | none |
+
+  **Nothing is replaced.** Two tests guard this. The `examples/personal` M9 fixture test compares every M9 resource's `Type`, `Properties`, `DeletionPolicy` and `UpdateReplacePolicy` with the templates M9 deployed, and allows only `ExportsReader8B249524` to differ. The version-pinned hash test proves that the control and sweep sources are unchanged without hashing `dist/assets/`, which the release workflow stamps. CloudFormation creates the new resources in dependency order: secret and KVS, then the session keys, the distribution and the records. A failure rolls back to M9 by deleting only new resources. Before deploying, the guide runs `cdk diff` through a gate that matches only resource-level removals and replacements.
+
+## Consequences
+
+One deploy brings up the viewing plane while the API keeps answering. CloudFront takes about 10 minutes to deploy and about 15 minutes to destroy. After this deploy, `GET /api` reports `0.0.0-development`, and the CLI prints its major-version warning against this server until a stamped version is deployed. An edge-cached pinned file stays cached for up to a year, even after its version is pruned or its artifact deleted. Only signed-in owners can reach it, behind the cookie. Two instances use 2 + 4 of the account's 20 + 20 custom policies.

@@ -53,7 +53,13 @@ describe("examples/personal", () => {
     // resource must keep its Type and its Properties, DeletionPolicy and UpdateReplacePolicy,
     // so the update of the live stacks replaces nothing. IN_PLACE lists the resources whose
     // Properties may change in place, with the reason.
-    const IN_PLACE: Record<string, Record<string, string>> = {};
+    const IN_PLACE: Record<string, Record<string, string>> = {
+      platform: {
+        // M10: the cross-Region reader also reads the view certificate's ARN for the
+        // distribution (docs/decisions/0083); a custom resource, modified in place.
+        ExportsReader8B249524: "reads one more cross-Region import",
+      },
+    };
     type Resource = Record<
       "Type" | "Properties" | "DeletionPolicy" | "UpdateReplacePolicy",
       unknown

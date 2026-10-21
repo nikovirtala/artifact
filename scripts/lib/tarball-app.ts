@@ -3,6 +3,7 @@
 // guide deploys it as `tarball-app` (examples/personal/README.md, whose blocks must equal these).
 // The zone comes from context (`-c zoneId=… -c zoneName=…`), so no domain is written here. The
 // stack is in us-east-1, so the construct creates its own view certificate (docs/decisions/0085).
+// It reserves no viewing concurrency: an account's us-east-1 limit can be 10, too small for any cap.
 
 /** `tarball-app` → `TarballApp`. */
 function pascalCase(name: string): string {
@@ -49,6 +50,7 @@ export function tarballAppFiles(name: string): TarballAppFiles {
     "      apiDomain: { name: `api.tarball.${zoneName}` },",
     '      identity: ArtifactIdentity.cognito({ owners: (process.env.ARTIFACT_OWNERS ?? "").split(",") }),',
     "      dataRetention: { onDestroy: RemovalPolicy.DESTROY, versions: { keepLast: 2 } },",
+    "      viewing: { reservedConcurrency: false },",
     "    });",
     "  }",
     "}",

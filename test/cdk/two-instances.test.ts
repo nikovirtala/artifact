@@ -1,6 +1,6 @@
-// Two `ArtifactHosting`s never collide (docs/decisions/0071): no physical names, distinct
-// outputs, one shared CDK auto-delete provider; also two stacks; an env-agnostic template has
-// no account or Region literal.
+// Two `ArtifactHosting`s never collide (docs/decisions/0071, 0083): no physical names but the
+// distinct CloudFront ones, distinct outputs, one shared CDK auto-delete provider; also two
+// stacks; an env-agnostic template has no account or Region literal.
 import assert from "node:assert/strict";
 import { globSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -35,17 +35,17 @@ const NAME_PROPS: Record<string, string[]> = {
   "AWS::CloudWatch::Alarm": ["AlarmName"],
 };
 
-function two(destroy: boolean) {
+function two(destroy: boolean, [one, other]: [string, string] = ["One", "Two"]) {
   const app = new App();
   const stack = testStack(app);
   const zone = testZone(stack);
   const dataRetention = destroy ? { onDestroy: RemovalPolicy.DESTROY } : undefined;
-  new ArtifactHosting(stack, "One", {
+  new ArtifactHosting(stack, one, {
     ...baseProps(zone),
     dataRetention,
     alarmEmail: "a@example.com",
   });
-  new ArtifactHosting(stack, "Two", {
+  new ArtifactHosting(stack, other, {
     ...baseProps(zone),
     viewDomain: { name: `two.${VIEW}`, hostedZone: zone, certificate: viewCertificate(stack) },
     apiDomain: { name: `api.two.${VIEW}` },
@@ -65,7 +65,8 @@ describe("two instances", () => {
       }
       template.resourceCountIs("AWS::S3::Bucket", 2);
       template.resourceCountIs("AWS::ApiGatewayV2::Api", 2);
-      template.resourceCountIs("AWS::SecretsManager::Secret", 2);
+      template.resourceCountIs("AWS::SecretsManager::Secret", 4);
+      template.resourceCountIs("AWS::CloudFront::Distribution", 2);
       const prefixes = resources(template, "AWS::Cognito::UserPoolDomain").map(
         ([, d]) => d.Properties?.Domain,
       );
@@ -81,6 +82,33 @@ describe("two instances", () => {
       assert.equal(providers.length, destroy ? 1 : 0);
       template.resourceCountIs("Custom::S3AutoDeleteObjects", destroy ? 2 : 0);
       assert.doesNotThrow(() => app.synth());
+    }
+  });
+
+  it("in one stack: the eight CloudFront names are distinct, also with 60-character ids", () => {
+    const named: [string, string[]][] = [
+      ["AWS::CloudFront::OriginRequestPolicy", ["OriginRequestPolicyConfig", "Name"]],
+      ["AWS::CloudFront::KeyValueStore", ["Name"]],
+      ["AWS::CloudFront::OriginAccessControl", ["OriginAccessControlConfig", "Name"]],
+    ];
+    for (const ids of [
+      ["One", "Two"],
+      [`${"a".repeat(59)}1`, `${"a".repeat(59)}2`],
+    ] as [string, string][]) {
+      const { template } = two(false, ids);
+      const names = named.flatMap(([type, path]) =>
+        resources(template, type).map(([, r]) =>
+          path.reduce<unknown>((v, key) => (v as Record<string, unknown>)[key], r.Properties),
+        ),
+      );
+      assert.equal(names.length, 8);
+      assert.equal(new Set(names).size, 8, JSON.stringify(names));
+      for (const name of names) assert.equal(typeof name, "string");
+      // CachePolicy and Function names are CDK's own (unique id + Region); none is set here.
+      const policies = resources(template, "AWS::CloudFront::CachePolicy").map(
+        ([, r]) => (r.Properties as { CachePolicyConfig: { Name: string } }).CachePolicyConfig.Name,
+      );
+      assert.equal(new Set(policies).size, 2);
     }
   });
 

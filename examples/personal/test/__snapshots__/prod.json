@@ -197,6 +197,104 @@
           ],
           "ValidationMethod": "DNS"
         }
+      },
+      "ExportsWritereunorth1A046C3EF536D3E39": {
+        "Type": "Custom::CrossRegionExportWriter",
+        "Properties": {
+          "ServiceToken": {
+            "Fn::GetAtt": [
+              "CustomCrossRegionExportWriterCustomResourceProviderHandlerD8786E8A",
+              "Arn"
+            ]
+          },
+          "WriterProps": {
+            "region": "eu-north-1",
+            "exports": {
+              "/cdk/exports/artifact-prod-platform/artifactprodcertificateuseast1RefViewCertificate5D8B1D9BD3CCC53E": {
+                "Ref": "ViewCertificate5D8B1D9B"
+              }
+            }
+          }
+        },
+        "UpdateReplacePolicy": "Delete",
+        "DeletionPolicy": "Delete"
+      },
+      "CustomCrossRegionExportWriterCustomResourceProviderRoleC951B1E1": {
+        "Type": "AWS::IAM::Role",
+        "Properties": {
+          "AssumeRolePolicyDocument": {
+            "Version": "2012-10-17",
+            "Statement": [
+              {
+                "Action": "sts:AssumeRole",
+                "Effect": "Allow",
+                "Principal": {
+                  "Service": "lambda.amazonaws.com"
+                }
+              }
+            ]
+          },
+          "ManagedPolicyArns": [
+            {
+              "Fn::Sub": "arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+            }
+          ],
+          "Policies": [
+            {
+              "PolicyName": "Inline",
+              "PolicyDocument": {
+                "Version": "2012-10-17",
+                "Statement": [
+                  {
+                    "Effect": "Allow",
+                    "Resource": [
+                      {
+                        "Fn::Join": [
+                          "",
+                          [
+                            "arn:",
+                            {
+                              "Ref": "AWS::Partition"
+                            },
+                            ":ssm:eu-north-1:<account>:parameter/cdk/exports/*"
+                          ]
+                        ]
+                      }
+                    ],
+                    "Action": [
+                      "ssm:DeleteParameters",
+                      "ssm:ListTagsForResource",
+                      "ssm:GetParameters",
+                      "ssm:PutParameter"
+                    ]
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "CustomCrossRegionExportWriterCustomResourceProviderHandlerD8786E8A": {
+        "Type": "AWS::Lambda::Function",
+        "Properties": {
+          "Code": {
+            "S3Bucket": "cdk-hnb659fds-assets-<account>-us-east-1",
+            "S3Key": "<asset-hash>.zip"
+          },
+          "Timeout": 900,
+          "MemorySize": 128,
+          "Handler": "__entrypoint__.handler",
+          "Role": {
+            "Fn::GetAtt": [
+              "CustomCrossRegionExportWriterCustomResourceProviderRoleC951B1E1",
+              "Arn"
+            ]
+          },
+          "Runtime": "nodejs24.x"
+        },
+        "DependsOn": [
+          "CustomCrossRegionExportWriterCustomResourceProviderRoleC951B1E1"
+        ]
       }
     },
     "Parameters": {
@@ -1125,6 +1223,863 @@
           }
         }
       },
+      "ArtifactsSessionSecretAAF34AB6": {
+        "Type": "AWS::SecretsManager::Secret",
+        "Properties": {
+          "SecretString": "{\"version\":1,\"current\":null,\"keys\":{}}"
+        },
+        "UpdateReplacePolicy": "Delete",
+        "DeletionPolicy": "Delete"
+      },
+      "ArtifactsKeyValueStore319CA210": {
+        "Type": "AWS::CloudFront::KeyValueStore",
+        "Properties": {
+          "Name": "artifactprodplatformArtifacts5735E1F8-Kvs-eu-north-1"
+        }
+      },
+      "ArtifactsViewLogGroup771D4759": {
+        "Type": "AWS::Logs::LogGroup",
+        "Properties": {
+          "RetentionInDays": 30
+        },
+        "UpdateReplacePolicy": "Delete",
+        "DeletionPolicy": "Delete"
+      },
+      "ArtifactsViewRole7BD860C7": {
+        "Type": "AWS::IAM::Role",
+        "Properties": {
+          "AssumeRolePolicyDocument": {
+            "Statement": [
+              {
+                "Action": "sts:AssumeRole",
+                "Effect": "Allow",
+                "Principal": {
+                  "Service": "lambda.amazonaws.com"
+                }
+              }
+            ],
+            "Version": "2012-10-17"
+          }
+        }
+      },
+      "ArtifactsViewRoleDefaultPolicy0225741C": {
+        "Type": "AWS::IAM::Policy",
+        "Properties": {
+          "PolicyDocument": {
+            "Statement": [
+              {
+                "Action": "s3:GetObject",
+                "Effect": "Allow",
+                "Resource": {
+                  "Fn::Join": [
+                    "",
+                    [
+                      {
+                        "Fn::GetAtt": [
+                          "ArtifactsBucket88671897",
+                          "Arn"
+                        ]
+                      },
+                      "/*"
+                    ]
+                  ]
+                }
+              },
+              {
+                "Action": "s3:ListBucket",
+                "Effect": "Allow",
+                "Resource": {
+                  "Fn::GetAtt": [
+                    "ArtifactsBucket88671897",
+                    "Arn"
+                  ]
+                }
+              },
+              {
+                "Action": "secretsmanager:GetSecretValue",
+                "Effect": "Allow",
+                "Resource": {
+                  "Ref": "ArtifactsSessionSecretAAF34AB6"
+                }
+              },
+              {
+                "Action": [
+                  "logs:CreateLogStream",
+                  "logs:PutLogEvents"
+                ],
+                "Effect": "Allow",
+                "Resource": {
+                  "Fn::GetAtt": [
+                    "ArtifactsViewLogGroup771D4759",
+                    "Arn"
+                  ]
+                }
+              }
+            ],
+            "Version": "2012-10-17"
+          },
+          "PolicyName": "ArtifactsViewRoleDefaultPolicy0225741C",
+          "Roles": [
+            {
+              "Ref": "ArtifactsViewRole7BD860C7"
+            }
+          ]
+        }
+      },
+      "ArtifactsViewFunction78179ACB": {
+        "Type": "AWS::Lambda::Function",
+        "Properties": {
+          "Architectures": [
+            "arm64"
+          ],
+          "Code": {
+            "S3Bucket": "cdk-hnb659fds-assets-<account>-eu-north-1",
+            "S3Key": "<asset-hash>.zip"
+          },
+          "Environment": {
+            "Variables": {
+              "ARTIFACT_BUCKET": {
+                "Ref": "ArtifactsBucket88671897"
+              },
+              "ARTIFACT_VIEW_DOMAIN": "artifact.nikovirtala.dev",
+              "ARTIFACT_SESSION_SECRET_ARN": {
+                "Ref": "ArtifactsSessionSecretAAF34AB6"
+              },
+              "ARTIFACT_OIDC_ISSUER": {
+                "Fn::GetAtt": [
+                  "ArtifactsUserPool7CD5D19D",
+                  "ProviderURL"
+                ]
+              },
+              "ARTIFACT_OIDC_AUTHORIZE_URL": {
+                "Fn::Join": [
+                  "",
+                  [
+                    "https://",
+                    {
+                      "Ref": "ArtifactsLoginDomain5D76AD4A"
+                    },
+                    ".auth.eu-north-1.amazoncognito.com/oauth2/authorize"
+                  ]
+                ]
+              },
+              "ARTIFACT_OIDC_TOKEN_URL": {
+                "Fn::Join": [
+                  "",
+                  [
+                    "https://",
+                    {
+                      "Ref": "ArtifactsLoginDomain5D76AD4A"
+                    },
+                    ".auth.eu-north-1.amazoncognito.com/oauth2/token"
+                  ]
+                ]
+              },
+              "ARTIFACT_OIDC_LOGOUT_URL": {
+                "Fn::Join": [
+                  "",
+                  [
+                    "https://",
+                    {
+                      "Ref": "ArtifactsLoginDomain5D76AD4A"
+                    },
+                    ".auth.eu-north-1.amazoncognito.com/logout"
+                  ]
+                ]
+              },
+              "ARTIFACT_OIDC_CLIENT_ID": {
+                "Ref": "ArtifactsViewClientEE91FB48"
+              },
+              "ARTIFACT_OWNERS": "[\"owner@example.com\"]"
+            }
+          },
+          "Handler": "index.handler",
+          "LoggingConfig": {
+            "LogGroup": {
+              "Ref": "ArtifactsViewLogGroup771D4759"
+            }
+          },
+          "MemorySize": 512,
+          "ReservedConcurrentExecutions": 20,
+          "Role": {
+            "Fn::GetAtt": [
+              "ArtifactsViewRole7BD860C7",
+              "Arn"
+            ]
+          },
+          "Runtime": "nodejs24.x",
+          "Timeout": 10
+        },
+        "DependsOn": [
+          "ArtifactsViewRoleDefaultPolicy0225741C",
+          "ArtifactsViewRole7BD860C7"
+        ]
+      },
+      "ArtifactsViewFunctionUrlResource822AEC54": {
+        "Type": "AWS::Lambda::Url",
+        "Properties": {
+          "AuthType": "AWS_IAM",
+          "InvokeMode": "BUFFERED",
+          "TargetFunctionArn": {
+            "Fn::GetAtt": [
+              "ArtifactsViewFunction78179ACB",
+              "Arn"
+            ]
+          }
+        }
+      },
+      "ArtifactsSessionKeysLogGroup23E0B507": {
+        "Type": "AWS::Logs::LogGroup",
+        "Properties": {
+          "RetentionInDays": 30
+        },
+        "UpdateReplacePolicy": "Delete",
+        "DeletionPolicy": "Delete"
+      },
+      "ArtifactsSessionKeysRole1099BF9B": {
+        "Type": "AWS::IAM::Role",
+        "Properties": {
+          "AssumeRolePolicyDocument": {
+            "Statement": [
+              {
+                "Action": "sts:AssumeRole",
+                "Effect": "Allow",
+                "Principal": {
+                  "Service": "lambda.amazonaws.com"
+                }
+              }
+            ],
+            "Version": "2012-10-17"
+          }
+        }
+      },
+      "ArtifactsSessionKeysRoleDefaultPolicy2E4208AD": {
+        "Type": "AWS::IAM::Policy",
+        "Properties": {
+          "PolicyDocument": {
+            "Statement": [
+              {
+                "Action": [
+                  "secretsmanager:GetSecretValue",
+                  "secretsmanager:PutSecretValue"
+                ],
+                "Effect": "Allow",
+                "Resource": {
+                  "Ref": "ArtifactsSessionSecretAAF34AB6"
+                }
+              },
+              {
+                "Action": [
+                  "cloudfront-keyvaluestore:DescribeKeyValueStore",
+                  "cloudfront-keyvaluestore:ListKeys",
+                  "cloudfront-keyvaluestore:UpdateKeys"
+                ],
+                "Effect": "Allow",
+                "Resource": {
+                  "Fn::GetAtt": [
+                    "ArtifactsKeyValueStore319CA210",
+                    "Arn"
+                  ]
+                }
+              },
+              {
+                "Action": [
+                  "logs:CreateLogStream",
+                  "logs:PutLogEvents"
+                ],
+                "Effect": "Allow",
+                "Resource": {
+                  "Fn::GetAtt": [
+                    "ArtifactsSessionKeysLogGroup23E0B507",
+                    "Arn"
+                  ]
+                }
+              }
+            ],
+            "Version": "2012-10-17"
+          },
+          "PolicyName": "ArtifactsSessionKeysRoleDefaultPolicy2E4208AD",
+          "Roles": [
+            {
+              "Ref": "ArtifactsSessionKeysRole1099BF9B"
+            }
+          ]
+        }
+      },
+      "ArtifactsSessionKeysFunction3352EF87": {
+        "Type": "AWS::Lambda::Function",
+        "Properties": {
+          "Architectures": [
+            "arm64"
+          ],
+          "Code": {
+            "S3Bucket": "cdk-hnb659fds-assets-<account>-eu-north-1",
+            "S3Key": "<asset-hash>.zip"
+          },
+          "Handler": "index.handler",
+          "LoggingConfig": {
+            "LogGroup": {
+              "Ref": "ArtifactsSessionKeysLogGroup23E0B507"
+            }
+          },
+          "MemorySize": 256,
+          "Role": {
+            "Fn::GetAtt": [
+              "ArtifactsSessionKeysRole1099BF9B",
+              "Arn"
+            ]
+          },
+          "Runtime": "nodejs24.x",
+          "Timeout": 120
+        },
+        "DependsOn": [
+          "ArtifactsSessionKeysRoleDefaultPolicy2E4208AD",
+          "ArtifactsSessionKeysRole1099BF9B"
+        ]
+      },
+      "ArtifactsSessionKeys68D416E3": {
+        "Type": "Custom::ArtifactSessionKeys",
+        "Properties": {
+          "ServiceToken": {
+            "Fn::GetAtt": [
+              "ArtifactsSessionKeysFunction3352EF87",
+              "Arn"
+            ]
+          },
+          "ServiceTimeout": "300",
+          "SecretArn": {
+            "Ref": "ArtifactsSessionSecretAAF34AB6"
+          },
+          "KeyValueStoreArn": {
+            "Fn::GetAtt": [
+              "ArtifactsKeyValueStore319CA210",
+              "Arn"
+            ]
+          },
+          "Rotation": "1"
+        },
+        "UpdateReplacePolicy": "Delete",
+        "DeletionPolicy": "Delete"
+      },
+      "ArtifactsViewerRequestFunctionB6B94A3A": {
+        "Type": "AWS::CloudFront::Function",
+        "Properties": {
+          "AutoPublish": true,
+          "FunctionCode": "import cf from \"cloudfront\";\nimport crypto from \"crypto\";\n\nconst VIEW_DOMAIN = \"artifact.nikovirtala.dev\";\n\n// CloudFront viewer-request function, cloudfront-js-2.0 (docs/decisions/0080, 0078). It\n// classifies the Host as DomainHostPolicy does, verifies the session cookie with the key its\n// KeyValueStore holds under the cookie's kid, copies the Host into x-artifact-host and removes\n// every cookie. Lines 1-3 are fixed, and the construct substitutes the VIEW_DOMAIN line at synth.\n// The runtime supports no async closures or arguments, so only handler is async and every helper\n// is synchronous.\n\nconst SESSION = \"__Secure-artifact_session\";\nconst TX = \"__Host-artifact_login\";\nconst LOGIN = { \"/__artifact/login\": 1, \"/__artifact/callback\": 1, \"/__artifact/logout\": 1 };\nconst ID = /^[0-9a-hjkmnp-tv-z]{26}$/;\nconst COOKIE = /^v1\\.([0-9a-f]{16})\\.([A-Za-z0-9_-]{1,1024})\\.([A-Za-z0-9_-]{43})$/;\nconst kvsHandle = cf.kvs();\n\nfunction text(statusCode, statusDescription, data) {\n  return {\n    statusCode: statusCode,\n    statusDescription: statusDescription,\n    headers: {\n      \"cache-control\": { value: \"no-store\" },\n      \"content-type\": { value: \"text/plain; charset=utf-8\" },\n    },\n    body: { encoding: \"text\", data: data },\n  };\n}\n\nfunction redirect(location) {\n  const res = text(302, \"Found\", \"sign in required\\n\");\n  res.headers.location = { value: location };\n  return res;\n}\n\n// {kid, input, sig, exp} for a well-formed cookie whose payload holds an integer exp, else null.\nfunction parseSession(value) {\n  const m = COOKIE.exec(value);\n  if (m === null) return null;\n  let payload = null;\n  try {\n    payload = JSON.parse(Buffer.from(m[2], \"base64url\").toString(\"utf8\"));\n  } catch (e) {\n    return null;\n  }\n  if (typeof payload !== \"object\" || payload === null || !Number.isInteger(payload.exp)) {\n    return null;\n  }\n  return { kid: m[1], input: `v1.${m[1]}.${m[2]}`, sig: m[3], exp: payload.exp };\n}\n\n// Constant time for the 43-character signatures: XOR over every character, no early exit.\nfunction equal(a, b) {\n  if (a.length !== b.length) return false;\n  let diff = 0;\n  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);\n  return diff === 0;\n}\n\nfunction checkSession(parsed, key, nowSeconds) {\n  if (!(parsed.exp > nowSeconds)) return false;\n  const sig = crypto.createHmac(\"sha256\", key).update(parsed.input).digest(\"base64url\");\n  return equal(sig, parsed.sig);\n}\n\nfunction header(req, name) {\n  const h = req.headers[name];\n  return h ? h.value : \"\";\n}\n\nfunction isNavigation(req) {\n  if (req.method !== \"GET\") return false;\n  const mode = req.headers[\"sec-fetch-mode\"];\n  if (mode) return mode.value === \"navigate\";\n  return header(req, \"accept\").indexOf(\"text/html\") !== -1;\n}\n\n// The viewer's URL, with the query rebuilt in CloudFront's key order and encoding.\nfunction returnUrl(host, req) {\n  const pairs = [];\n  const query = req.querystring || {};\n  const names = Object.keys(query);\n  for (let i = 0; i < names.length; i++) {\n    const q = query[names[i]];\n    if (q.multiValue) {\n      for (let j = 0; j < q.multiValue.length; j++) {\n        pairs.push(`${names[i]}=${q.multiValue[j].value}`);\n      }\n    } else {\n      pairs.push(`${names[i]}=${q.value}`);\n    }\n  }\n  return `https://${host}${req.uri}${pairs.length === 0 ? \"\" : `?${pairs.join(\"&\")}`}`;\n}\n\nfunction cookie(req, name) {\n  const cookies = req.cookies || {};\n  return cookies[name];\n}\n\nfunction keepOnly(req, name) {\n  const kept = {};\n  const c = cookie(req, name);\n  if (c) kept[name] = c;\n  req.cookies = kept;\n}\n\nfunction setHost(req, host) {\n  req.headers[\"x-artifact-host\"] = { value: host };\n}\n\nasync function handler(event) {\n  const req = event.request;\n  let host = header(req, \"host\").toLowerCase();\n  if (host.endsWith(\":443\")) host = host.slice(0, -4);\n  const main = host === VIEW_DOMAIN;\n  const suffix = `.${VIEW_DOMAIN}`;\n  if (!main && !(host.endsWith(suffix) && ID.test(host.slice(0, -suffix.length)))) {\n    return text(403, \"Forbidden\", \"forbidden: unexpected Host header\\n\");\n  }\n  if (main && LOGIN[req.uri] === 1) {\n    keepOnly(req, TX);\n    setHost(req, host);\n    return req;\n  }\n  const session = cookie(req, SESSION);\n  const parsed = parseSession(session ? session.value : \"\");\n  let key = null;\n  if (parsed) {\n    try {\n      key = await kvsHandle.get(parsed.kid);\n    } catch (e) {\n      key = null;\n    }\n  }\n  const now = Math.floor(Date.now() / 1000);\n  if (!(parsed && typeof key === \"string\" && checkSession(parsed, key, now))) {\n    if (!isNavigation(req)) return text(401, \"Unauthorized\", \"unauthorized\\n\");\n    const target = encodeURIComponent(returnUrl(host, req));\n    return redirect(`https://${VIEW_DOMAIN}/__artifact/login?return=${target}`);\n  }\n  req.cookies = {};\n  setHost(req, host);\n  return req;\n}\n",
+          "FunctionConfig": {
+            "Comment": "eu-north-1artifact-prod-plrRequestFunctionFE0EAEDC",
+            "KeyValueStoreAssociations": [
+              {
+                "KeyValueStoreARN": {
+                  "Fn::GetAtt": [
+                    "ArtifactsKeyValueStore319CA210",
+                    "Arn"
+                  ]
+                }
+              }
+            ],
+            "Runtime": "cloudfront-js-2.0"
+          },
+          "Name": "eu-north-1artifact-prod-plrRequestFunctionFE0EAEDC"
+        }
+      },
+      "ArtifactsViewCachePolicyB7A9DDDF": {
+        "Type": "AWS::CloudFront::CachePolicy",
+        "Properties": {
+          "CachePolicyConfig": {
+            "DefaultTTL": 0,
+            "MaxTTL": 31536000,
+            "MinTTL": 0,
+            "Name": "prodPlatformArtifactsViewCachePolicy297D6DDE-eu-north-1",
+            "ParametersInCacheKeyAndForwardedToOrigin": {
+              "CookiesConfig": {
+                "CookieBehavior": "none"
+              },
+              "EnableAcceptEncodingBrotli": true,
+              "EnableAcceptEncodingGzip": true,
+              "HeadersConfig": {
+                "HeaderBehavior": "whitelist",
+                "Headers": [
+                  "x-artifact-host"
+                ]
+              },
+              "QueryStringsConfig": {
+                "QueryStringBehavior": "all"
+              }
+            }
+          }
+        }
+      },
+      "ArtifactsViewOriginRequestPolicy2E2688FF": {
+        "Type": "AWS::CloudFront::OriginRequestPolicy",
+        "Properties": {
+          "OriginRequestPolicyConfig": {
+            "CookiesConfig": {
+              "CookieBehavior": "none"
+            },
+            "HeadersConfig": {
+              "HeaderBehavior": "whitelist",
+              "Headers": [
+                "x-artifact-host"
+              ]
+            },
+            "Name": "artifactprodplatformArtifacts5735E1F8-View-eu-north-1",
+            "QueryStringsConfig": {
+              "QueryStringBehavior": "all"
+            }
+          }
+        }
+      },
+      "ArtifactsLoginOriginRequestPolicy6414AFCB": {
+        "Type": "AWS::CloudFront::OriginRequestPolicy",
+        "Properties": {
+          "OriginRequestPolicyConfig": {
+            "CookiesConfig": {
+              "CookieBehavior": "whitelist",
+              "Cookies": [
+                "__Host-artifact_login"
+              ]
+            },
+            "HeadersConfig": {
+              "HeaderBehavior": "whitelist",
+              "Headers": [
+                "x-artifact-host"
+              ]
+            },
+            "Name": "artifactprodplatformArtifacts5735E1F8-Login-eu-north-1",
+            "QueryStringsConfig": {
+              "QueryStringBehavior": "all"
+            }
+          }
+        }
+      },
+      "ArtifactsViewOriginAccessControlDBBE64E3": {
+        "Type": "AWS::CloudFront::OriginAccessControl",
+        "Properties": {
+          "OriginAccessControlConfig": {
+            "Name": "artifactprodplatformArtifacts5735E1F8-Oac-eu-north-1",
+            "OriginAccessControlOriginType": "lambda",
+            "SigningBehavior": "always",
+            "SigningProtocol": "sigv4"
+          }
+        }
+      },
+      "ArtifactsDistributionOrigin1InvokeFromApiForprodPlatformArtifactsDistributionOrigin141C07570E643A311": {
+        "Type": "AWS::Lambda::Permission",
+        "Properties": {
+          "Action": "lambda:InvokeFunctionUrl",
+          "FunctionName": {
+            "Fn::GetAtt": [
+              "ArtifactsViewFunctionUrlResource822AEC54",
+              "FunctionArn"
+            ]
+          },
+          "Principal": "cloudfront.amazonaws.com",
+          "SourceArn": {
+            "Fn::Join": [
+              "",
+              [
+                "arn:",
+                {
+                  "Ref": "AWS::Partition"
+                },
+                ":cloudfront::",
+                {
+                  "Ref": "AWS::AccountId"
+                },
+                ":distribution/",
+                {
+                  "Ref": "ArtifactsDistribution7592120A"
+                }
+              ]
+            ]
+          }
+        },
+        "DependsOn": [
+          "ArtifactsSessionKeys68D416E3"
+        ]
+      },
+      "ArtifactsDistributionOrigin1InvokeFunctionFromCloudFrontForprodPlatformArtifactsDistributionOrigin141C0757016EBFCB0": {
+        "Type": "AWS::Lambda::Permission",
+        "Properties": {
+          "Action": "lambda:InvokeFunction",
+          "FunctionName": {
+            "Fn::GetAtt": [
+              "ArtifactsViewFunctionUrlResource822AEC54",
+              "FunctionArn"
+            ]
+          },
+          "InvokedViaFunctionUrl": true,
+          "Principal": "cloudfront.amazonaws.com",
+          "SourceArn": {
+            "Fn::Join": [
+              "",
+              [
+                "arn:",
+                {
+                  "Ref": "AWS::Partition"
+                },
+                ":cloudfront::",
+                {
+                  "Ref": "AWS::AccountId"
+                },
+                ":distribution/",
+                {
+                  "Ref": "ArtifactsDistribution7592120A"
+                }
+              ]
+            ]
+          }
+        },
+        "DependsOn": [
+          "ArtifactsSessionKeys68D416E3"
+        ]
+      },
+      "ArtifactsDistribution7592120A": {
+        "Type": "AWS::CloudFront::Distribution",
+        "Properties": {
+          "DistributionConfig": {
+            "Aliases": [
+              "artifact.nikovirtala.dev",
+              "*.artifact.nikovirtala.dev"
+            ],
+            "CacheBehaviors": [
+              {
+                "AllowedMethods": [
+                  "GET",
+                  "HEAD"
+                ],
+                "CachePolicyId": "4135ea2d-6df8-44a3-9df3-4b5a84be39ad",
+                "CachedMethods": [
+                  "GET",
+                  "HEAD"
+                ],
+                "Compress": false,
+                "FunctionAssociations": [
+                  {
+                    "EventType": "viewer-request",
+                    "FunctionARN": {
+                      "Fn::GetAtt": [
+                        "ArtifactsViewerRequestFunctionB6B94A3A",
+                        "FunctionARN"
+                      ]
+                    }
+                  }
+                ],
+                "OriginRequestPolicyId": {
+                  "Ref": "ArtifactsLoginOriginRequestPolicy6414AFCB"
+                },
+                "PathPattern": "/__artifact/login",
+                "TargetOriginId": "prodPlatformArtifactsDistributionOrigin141C07570",
+                "ViewerProtocolPolicy": "redirect-to-https"
+              },
+              {
+                "AllowedMethods": [
+                  "GET",
+                  "HEAD"
+                ],
+                "CachePolicyId": "4135ea2d-6df8-44a3-9df3-4b5a84be39ad",
+                "CachedMethods": [
+                  "GET",
+                  "HEAD"
+                ],
+                "Compress": false,
+                "FunctionAssociations": [
+                  {
+                    "EventType": "viewer-request",
+                    "FunctionARN": {
+                      "Fn::GetAtt": [
+                        "ArtifactsViewerRequestFunctionB6B94A3A",
+                        "FunctionARN"
+                      ]
+                    }
+                  }
+                ],
+                "OriginRequestPolicyId": {
+                  "Ref": "ArtifactsLoginOriginRequestPolicy6414AFCB"
+                },
+                "PathPattern": "/__artifact/callback",
+                "TargetOriginId": "prodPlatformArtifactsDistributionOrigin141C07570",
+                "ViewerProtocolPolicy": "redirect-to-https"
+              },
+              {
+                "AllowedMethods": [
+                  "GET",
+                  "HEAD"
+                ],
+                "CachePolicyId": "4135ea2d-6df8-44a3-9df3-4b5a84be39ad",
+                "CachedMethods": [
+                  "GET",
+                  "HEAD"
+                ],
+                "Compress": false,
+                "FunctionAssociations": [
+                  {
+                    "EventType": "viewer-request",
+                    "FunctionARN": {
+                      "Fn::GetAtt": [
+                        "ArtifactsViewerRequestFunctionB6B94A3A",
+                        "FunctionARN"
+                      ]
+                    }
+                  }
+                ],
+                "OriginRequestPolicyId": {
+                  "Ref": "ArtifactsLoginOriginRequestPolicy6414AFCB"
+                },
+                "PathPattern": "/__artifact/logout",
+                "TargetOriginId": "prodPlatformArtifactsDistributionOrigin141C07570",
+                "ViewerProtocolPolicy": "redirect-to-https"
+              }
+            ],
+            "CustomErrorResponses": [
+              {
+                "ErrorCachingMinTTL": 0,
+                "ErrorCode": 400
+              },
+              {
+                "ErrorCachingMinTTL": 0,
+                "ErrorCode": 403
+              },
+              {
+                "ErrorCachingMinTTL": 0,
+                "ErrorCode": 404
+              },
+              {
+                "ErrorCachingMinTTL": 0,
+                "ErrorCode": 405
+              },
+              {
+                "ErrorCachingMinTTL": 0,
+                "ErrorCode": 414
+              },
+              {
+                "ErrorCachingMinTTL": 0,
+                "ErrorCode": 416
+              },
+              {
+                "ErrorCachingMinTTL": 0,
+                "ErrorCode": 500
+              },
+              {
+                "ErrorCachingMinTTL": 0,
+                "ErrorCode": 501
+              },
+              {
+                "ErrorCachingMinTTL": 0,
+                "ErrorCode": 502
+              },
+              {
+                "ErrorCachingMinTTL": 0,
+                "ErrorCode": 503
+              },
+              {
+                "ErrorCachingMinTTL": 0,
+                "ErrorCode": 504
+              }
+            ],
+            "DefaultCacheBehavior": {
+              "AllowedMethods": [
+                "GET",
+                "HEAD"
+              ],
+              "CachePolicyId": {
+                "Ref": "ArtifactsViewCachePolicyB7A9DDDF"
+              },
+              "CachedMethods": [
+                "GET",
+                "HEAD"
+              ],
+              "Compress": true,
+              "FunctionAssociations": [
+                {
+                  "EventType": "viewer-request",
+                  "FunctionARN": {
+                    "Fn::GetAtt": [
+                      "ArtifactsViewerRequestFunctionB6B94A3A",
+                      "FunctionARN"
+                    ]
+                  }
+                }
+              ],
+              "OriginRequestPolicyId": {
+                "Ref": "ArtifactsViewOriginRequestPolicy2E2688FF"
+              },
+              "TargetOriginId": "prodPlatformArtifactsDistributionOrigin141C07570",
+              "ViewerProtocolPolicy": "redirect-to-https"
+            },
+            "Enabled": true,
+            "HttpVersion": "http2and3",
+            "IPV6Enabled": true,
+            "Origins": [
+              {
+                "CustomOriginConfig": {
+                  "OriginProtocolPolicy": "https-only",
+                  "OriginSSLProtocols": [
+                    "TLSv1.2"
+                  ]
+                },
+                "DomainName": {
+                  "Fn::Select": [
+                    2,
+                    {
+                      "Fn::Split": [
+                        "/",
+                        {
+                          "Fn::GetAtt": [
+                            "ArtifactsViewFunctionUrlResource822AEC54",
+                            "FunctionUrl"
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                "Id": "prodPlatformArtifactsDistributionOrigin141C07570",
+                "OriginAccessControlId": {
+                  "Fn::GetAtt": [
+                    "ArtifactsViewOriginAccessControlDBBE64E3",
+                    "Id"
+                  ]
+                }
+              }
+            ],
+            "ViewerCertificate": {
+              "AcmCertificateArn": {
+                "Fn::GetAtt": [
+                  "ExportsReader8B249524",
+                  "/cdk/exports/artifact-prod-platform/artifactprodcertificateuseast1RefViewCertificate5D8B1D9BD3CCC53E"
+                ]
+              },
+              "MinimumProtocolVersion": "TLSv1.2_2021",
+              "SslSupportMethod": "sni-only"
+            }
+          }
+        },
+        "DependsOn": [
+          "ArtifactsSessionKeys68D416E3"
+        ]
+      },
+      "ArtifactsViewAliasRecord59E8AFFA": {
+        "Type": "AWS::Route53::RecordSet",
+        "Properties": {
+          "AliasTarget": {
+            "DNSName": {
+              "Fn::GetAtt": [
+                "ArtifactsDistribution7592120A",
+                "DomainName"
+              ]
+            },
+            "HostedZoneId": {
+              "Fn::FindInMap": [
+                "AWSCloudFrontPartitionHostedZoneIdMap",
+                {
+                  "Ref": "AWS::Partition"
+                },
+                "zoneId"
+              ]
+            }
+          },
+          "HostedZoneId": {
+            "Fn::GetAtt": [
+              "ExportsReader8B249524",
+              "/cdk/exports/artifact-prod-platform/artifactproddnsuseast1RefZoneA5DE4B68B92B0AA2"
+            ]
+          },
+          "Name": "artifact.nikovirtala.dev.",
+          "Type": "A"
+        }
+      },
+      "ArtifactsViewAliasRecordAaaaA1C615FD": {
+        "Type": "AWS::Route53::RecordSet",
+        "Properties": {
+          "AliasTarget": {
+            "DNSName": {
+              "Fn::GetAtt": [
+                "ArtifactsDistribution7592120A",
+                "DomainName"
+              ]
+            },
+            "HostedZoneId": {
+              "Fn::FindInMap": [
+                "AWSCloudFrontPartitionHostedZoneIdMap",
+                {
+                  "Ref": "AWS::Partition"
+                },
+                "zoneId"
+              ]
+            }
+          },
+          "HostedZoneId": {
+            "Fn::GetAtt": [
+              "ExportsReader8B249524",
+              "/cdk/exports/artifact-prod-platform/artifactproddnsuseast1RefZoneA5DE4B68B92B0AA2"
+            ]
+          },
+          "Name": "artifact.nikovirtala.dev.",
+          "Type": "AAAA"
+        }
+      },
+      "ArtifactsViewWildcardRecord586866F7": {
+        "Type": "AWS::Route53::RecordSet",
+        "Properties": {
+          "AliasTarget": {
+            "DNSName": {
+              "Fn::GetAtt": [
+                "ArtifactsDistribution7592120A",
+                "DomainName"
+              ]
+            },
+            "HostedZoneId": {
+              "Fn::FindInMap": [
+                "AWSCloudFrontPartitionHostedZoneIdMap",
+                {
+                  "Ref": "AWS::Partition"
+                },
+                "zoneId"
+              ]
+            }
+          },
+          "HostedZoneId": {
+            "Fn::GetAtt": [
+              "ExportsReader8B249524",
+              "/cdk/exports/artifact-prod-platform/artifactproddnsuseast1RefZoneA5DE4B68B92B0AA2"
+            ]
+          },
+          "Name": "*.artifact.nikovirtala.dev.",
+          "Type": "A"
+        }
+      },
+      "ArtifactsViewWildcardRecordAaaaBB165C8C": {
+        "Type": "AWS::Route53::RecordSet",
+        "Properties": {
+          "AliasTarget": {
+            "DNSName": {
+              "Fn::GetAtt": [
+                "ArtifactsDistribution7592120A",
+                "DomainName"
+              ]
+            },
+            "HostedZoneId": {
+              "Fn::FindInMap": [
+                "AWSCloudFrontPartitionHostedZoneIdMap",
+                {
+                  "Ref": "AWS::Partition"
+                },
+                "zoneId"
+              ]
+            }
+          },
+          "HostedZoneId": {
+            "Fn::GetAtt": [
+              "ExportsReader8B249524",
+              "/cdk/exports/artifact-prod-platform/artifactproddnsuseast1RefZoneA5DE4B68B92B0AA2"
+            ]
+          },
+          "Name": "*.artifact.nikovirtala.dev.",
+          "Type": "AAAA"
+        }
+      },
       "ExportsReader8B249524": {
         "Type": "Custom::CrossRegionExportReader",
         "Properties": {
@@ -1138,7 +2093,8 @@
             "region": "eu-north-1",
             "prefix": "artifact-prod-platform",
             "imports": {
-              "/cdk/exports/artifact-prod-platform/artifactproddnsuseast1RefZoneA5DE4B68B92B0AA2": "{{resolve:ssm:/cdk/exports/artifact-prod-platform/artifactproddnsuseast1RefZoneA5DE4B68B92B0AA2}}"
+              "/cdk/exports/artifact-prod-platform/artifactproddnsuseast1RefZoneA5DE4B68B92B0AA2": "{{resolve:ssm:/cdk/exports/artifact-prod-platform/artifactproddnsuseast1RefZoneA5DE4B68B92B0AA2}}",
+              "/cdk/exports/artifact-prod-platform/artifactprodcertificateuseast1RefViewCertificate5D8B1D9BD3CCC53E": "{{resolve:ssm:/cdk/exports/artifact-prod-platform/artifactprodcertificateuseast1RefViewCertificate5D8B1D9BD3CCC53E}}"
             }
           }
         },
@@ -1221,6 +2177,77 @@
       }
     },
     "Outputs": {
+      "ArtifactsDistributionId88A4B928": {
+        "Value": {
+          "Ref": "ArtifactsDistribution7592120A"
+        }
+      },
+      "ArtifactsDistributionDomainName9BA5D672": {
+        "Value": {
+          "Fn::GetAtt": [
+            "ArtifactsDistribution7592120A",
+            "DomainName"
+          ]
+        }
+      },
+      "ArtifactsViewFunctionUrlD5FA91C5": {
+        "Value": {
+          "Fn::GetAtt": [
+            "ArtifactsViewFunctionUrlResource822AEC54",
+            "FunctionUrl"
+          ]
+        }
+      },
+      "ArtifactsViewLogGroupName3AF62ED8": {
+        "Value": {
+          "Ref": "ArtifactsViewLogGroup771D4759"
+        }
+      },
+      "ArtifactsViewerRequestFunctionNameE80B283E": {
+        "Value": "eu-north-1artifact-prod-plrRequestFunctionFE0EAEDC"
+      },
+      "ArtifactsKeyValueStoreArn6E1A7E83": {
+        "Value": {
+          "Fn::GetAtt": [
+            "ArtifactsKeyValueStore319CA210",
+            "Arn"
+          ]
+        }
+      },
+      "ArtifactsSessionSecretArnD88C1C50": {
+        "Value": {
+          "Ref": "ArtifactsSessionSecretAAF34AB6"
+        }
+      },
+      "ArtifactsSessionKeysLogGroupName3C93FDF1": {
+        "Value": {
+          "Ref": "ArtifactsSessionKeysLogGroup23E0B507"
+        }
+      },
+      "ArtifactsUserPoolId415AA5BE": {
+        "Value": {
+          "Ref": "ArtifactsUserPool7CD5D19D"
+        }
+      },
+      "ArtifactsUserPoolClientId796DE020": {
+        "Value": {
+          "Ref": "ArtifactsViewClientEE91FB48"
+        }
+      },
+      "ArtifactsLoginDomainUrl1D10A643": {
+        "Value": {
+          "Fn::Join": [
+            "",
+            [
+              "https://",
+              {
+                "Ref": "ArtifactsLoginDomain5D76AD4A"
+              },
+              ".auth.eu-north-1.amazoncognito.com"
+            ]
+          ]
+        }
+      },
       "ArtifactsApiUrlDB84C18F": {
         "Value": "https://api.artifact.nikovirtala.dev"
       },
@@ -1250,6 +2277,16 @@
       "ArtifactsSweepFunctionName1C5032B5": {
         "Value": {
           "Ref": "ArtifactsSweepFunction94CC610E"
+        }
+      }
+    },
+    "Mappings": {
+      "AWSCloudFrontPartitionHostedZoneIdMap": {
+        "aws": {
+          "zoneId": "Z2FDTNDATAQYW2"
+        },
+        "aws-cn": {
+          "zoneId": "Z3RFFRIM2A3IF5"
         }
       }
     },

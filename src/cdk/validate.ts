@@ -217,6 +217,52 @@ export function resolveThrottle(throttle: ThrottleInput = {}): Required<Throttle
   return resolved;
 }
 
+export type ViewingInput = {
+  reservedConcurrency?: number | false;
+  provisionedConcurrency?: number;
+  sessionKeyRotation?: string;
+};
+
+export type ResolvedViewing = {
+  /** Undefined: no cap. */
+  reservedConcurrency?: number;
+  provisionedConcurrency?: number;
+  sessionKeyRotation: string;
+};
+
+const ROTATION_LABEL = /^[A-Za-z0-9._-]{1,64}$/;
+
+/** The viewing options (docs/decisions/0085): a reserved cap of 20 and the label "1" by default. */
+export function resolveViewing(viewing: ViewingInput = {}): ResolvedViewing {
+  const reserved = viewing.reservedConcurrency ?? 20;
+  if (
+    reserved !== false &&
+    !(Number.isSafeInteger(reserved) && reserved >= 1 && reserved <= 1000)
+  ) {
+    throw new Error("viewing.reservedConcurrency must be an integer from 1 to 1000, or false");
+  }
+  const provisioned = viewing.provisionedConcurrency;
+  if (provisioned !== undefined) {
+    if (!Number.isSafeInteger(provisioned) || provisioned < 1) {
+      throw new Error("viewing.provisionedConcurrency must be a positive integer");
+    }
+    if (reserved !== false && provisioned > reserved) {
+      throw new Error(
+        `viewing.provisionedConcurrency must not exceed viewing.reservedConcurrency (${reserved})`,
+      );
+    }
+  }
+  const rotation = viewing.sessionKeyRotation ?? "1";
+  if (typeof rotation !== "string" || !ROTATION_LABEL.test(rotation)) {
+    throw new Error("viewing.sessionKeyRotation must be 1 to 64 of [A-Za-z0-9._-]");
+  }
+  return {
+    ...(reserved === false ? {} : { reservedConcurrency: reserved }),
+    ...(provisioned === undefined ? {} : { provisionedConcurrency: provisioned }),
+    sessionKeyRotation: rotation,
+  };
+}
+
 export function checkAlarmEmail(email: string | undefined): string | undefined {
   if (email === undefined) return undefined;
   if (typeof email !== "string" || !isEmail(email.trim())) {

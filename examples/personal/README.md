@@ -194,6 +194,7 @@ Run after (e) and before (h), while the zone exists. A fresh `cdk init` app depl
          apiDomain: { name: `api.tarball.${zoneName}` },
          identity: ArtifactIdentity.cognito({ owners: (process.env.ARTIFACT_OWNERS ?? "").split(",") }),
          dataRetention: { onDestroy: RemovalPolicy.DESTROY, versions: { keepLast: 2 } },
+         viewing: { reservedConcurrency: false },
        });
      }
    }

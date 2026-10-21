@@ -147,6 +147,44 @@ describe("the view certificate", () => {
   });
 });
 
+describe("viewing", () => {
+  const viewing = (v: ArtifactHostingProps["viewing"]) => build((p) => ({ ...p, viewing: v }));
+
+  it("accepts the defaults, no cap, a cap with provisioned instances and a rotation label", () => {
+    viewing(undefined);
+    viewing({ reservedConcurrency: false, provisionedConcurrency: 3 });
+    viewing({ reservedConcurrency: 1000, provisionedConcurrency: 1000 });
+    viewing({ reservedConcurrency: 1, sessionKeyRotation: "2026-10-21.a_B" });
+    viewing({ sessionKeyRotation: "x".repeat(64) });
+  });
+
+  it("rejects bad reserved and provisioned concurrency and rotation labels", () => {
+    for (const reservedConcurrency of [0, 1001, 1.5, -1, true as unknown as number]) {
+      assert.throws(
+        () => viewing({ reservedConcurrency }),
+        /^Error: viewing.reservedConcurrency must be an integer from 1 to 1000, or false$/,
+        String(reservedConcurrency),
+      );
+    }
+    for (const provisionedConcurrency of [0, 1.5, -1]) {
+      assert.throws(
+        () => viewing({ provisionedConcurrency }),
+        /^Error: viewing.provisionedConcurrency must be a positive integer$/,
+      );
+    }
+    assert.throws(
+      () => viewing({ provisionedConcurrency: 21 }),
+      /^Error: viewing.provisionedConcurrency must not exceed viewing.reservedConcurrency \(20\)$/,
+    );
+    for (const sessionKeyRotation of ["", "a b", "x".repeat(65), "ä"]) {
+      assert.throws(
+        () => viewing({ sessionKeyRotation }),
+        /^Error: viewing.sessionKeyRotation must be 1 to 64 of \[A-Za-z0-9._-\]$/,
+      );
+    }
+  });
+});
+
 describe("the API host", () => {
   it("must differ from the view domain", () => {
     assert.throws(() => withNames(VIEW, VIEW), /apiDomain.name must differ from viewDomain.name/);

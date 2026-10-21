@@ -86,4 +86,6 @@ One short file per decision, numbered in order. Status is **Accepted** (in effec
 | [0080](0080-edge-viewer-request-function.md) | Edge viewer-request function: host rules, session check, login passthrough, cookies stripped, `x-artifact-host` | Accepted |
 | [0081](0081-login-oidc-pkce.md) | Login: OIDC code + PKCE, transaction cookie, return validation and the login cache behaviour | Accepted |
 | [0082](0082-viewing-lambda.md) | Viewing Lambda: host from `x-artifact-host`, cookie filtering, Cache-Control by class, path mode off, inert reload client, read-only role | Accepted |
+| [0083](0083-distribution-and-live-update.md) | Distribution, cache and origin request policies, DNS records and the live update of `prod` (nothing replaced) | Accepted |
 | [0084](0084-cognito-login-and-owners.md) | Cognito app client, managed login and owner users: public code-flow client, prefix derivation, branding, owners by hashed ids, pool untouched | Accepted |
+| [0085](0085-construct-api-m10.md) | Construct API for M10: the us-east-1 certificate rule, literal view domain, `viewing` props, outputs, tarball app in us-east-1, 2.0.0 | Accepted |

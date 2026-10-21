@@ -71,6 +71,7 @@ export function assertSecurityShape(
     Resource: r(fn.logGroup.logGroupArn),
   });
   const sweepArn = r(construct.sweepFunction.functionArn);
+  const sessionSecret = r(construct.sessionSecret.secretArn);
   const expected: Record<string, Statement[]> = {
     [logicalIdOf(stack, construct.controlFunction.role?.roleArn as string)]: s3([
       logs(construct.controlFunction),
@@ -83,6 +84,31 @@ export function assertSecurityShape(
     [logicalIdOf(stack, construct.sweepFunction.role?.roleArn as string)]: s3([
       logs(construct.sweepFunction),
     ]),
+    // Read-only: the objects, the listing and the session key to sign with (0082).
+    [logicalIdOf(stack, construct.viewFunction.role?.roleArn as string)]: [
+      { Effect: "Allow", Action: "s3:GetObject", Resource: objects },
+      { Effect: "Allow", Action: "s3:ListBucket", Resource: bucket },
+      { Effect: "Allow", Action: "secretsmanager:GetSecretValue", Resource: sessionSecret },
+      logs(construct.viewFunction),
+    ],
+    // The session key set: in the secret and the KeyValueStore, nothing else (0079).
+    [logicalIdOf(stack, construct.sessionKeysFunction.role?.roleArn as string)]: [
+      {
+        Effect: "Allow",
+        Action: ["secretsmanager:GetSecretValue", "secretsmanager:PutSecretValue"],
+        Resource: sessionSecret,
+      },
+      {
+        Effect: "Allow",
+        Action: [
+          "cloudfront-keyvaluestore:DescribeKeyValueStore",
+          "cloudfront-keyvaluestore:ListKeys",
+          "cloudfront-keyvaluestore:UpdateKeys",
+        ],
+        Resource: r(construct.keyValueStore.keyValueStoreArn),
+      },
+      logs(construct.sessionKeysFunction),
+    ],
     [logicalIdOf(stack, construct.schedulerRole.roleArn)]: [
       {
         Effect: "Allow",
@@ -92,7 +118,7 @@ export function assertSecurityShape(
     ],
   };
 
-  // The stack holds this one construct: its roles are exactly the three (plus CDK's provider).
+  // The stack holds this one construct: its roles are exactly the five (plus CDK's provider).
   const ownRoles = Object.entries(resources)
     .filter(([id, res]) => res.Type === "AWS::IAM::Role" && !id.startsWith(AUTO_DELETE))
     .map(([id]) => id);

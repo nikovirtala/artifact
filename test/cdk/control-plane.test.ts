@@ -28,7 +28,10 @@ const ACCESS_LOG_KEYS = [
 describe("functions", () => {
   it("run nodejs24.x on arm64 from the prebuilt assets with the AWS limits", () => {
     const { template } = hosting();
-    const functions = resources(template, "AWS::Lambda::Function");
+    // The viewing and session-keys functions are in viewing-plane.test.ts.
+    const functions = resources(template, "AWS::Lambda::Function").filter(([id]) =>
+      /^Artifacts(Control|Sweep)Function/.test(id),
+    );
     assert.equal(functions.length, 2);
     const byMemory = Object.fromEntries(
       functions.map(([, f]) => [f.Properties?.MemorySize as number, f.Properties]),
@@ -108,7 +111,9 @@ describe("HTTP API", () => {
     });
     const [[, mapping]] = resources(template, "AWS::ApiGatewayV2::ApiMapping");
     assert.equal(mapping.Properties?.ApiMappingKey, undefined);
-    const records = resources(template, "AWS::Route53::RecordSet");
+    const records = resources(template, "AWS::Route53::RecordSet").filter(([id]) =>
+      id.startsWith("ArtifactsApiAliasRecord"),
+    );
     assert.equal(records.length, 1);
     assert.equal(records[0][1].Properties?.Type, "A");
     assert.equal(records[0][1].Properties?.Name, `${API}.`);
@@ -138,7 +143,9 @@ describe("HTTP API", () => {
 describe("token secret", () => {
   it("is exactly the empty list, deleted with the stack (frozen, ADR 0065)", () => {
     const { template } = hosting();
-    const secrets = resources(template, "AWS::SecretsManager::Secret");
+    const secrets = resources(template, "AWS::SecretsManager::Secret").filter(([id]) =>
+      id.startsWith("ArtifactsTokenSecret"),
+    );
     assert.equal(secrets.length, 1);
     const [, secret] = secrets[0];
     assert.deepEqual(secret.Properties, { SecretString: '{"version":1,"tokens":[]}' });
@@ -148,7 +155,7 @@ describe("token secret", () => {
 });
 
 describe("alarms", () => {
-  it("exist only with alarmEmail: a topic, its subscription and three alarms", () => {
+  it("exist only with alarmEmail: a topic, its subscription and four alarms", () => {
     const none = hosting().template;
     none.resourceCountIs("AWS::SNS::Topic", 0);
     none.resourceCountIs("AWS::CloudWatch::Alarm", 0);
@@ -164,6 +171,7 @@ describe("alarms", () => {
       [
         ["5xx", 5, 300, "notBreaching"],
         ["Errors", 1, 300, "notBreaching"],
+        ["Errors", 1, 300, "notBreaching"],
         ["Errors", 1, 3600, "notBreaching"],
       ],
     );
@@ -172,7 +180,7 @@ describe("alarms", () => {
 });
 
 describe("outputs", () => {
-  it("name the API, view, secret, bucket, log groups and sweep function", () => {
+  it("name the API, view, secret, bucket, log groups, sweep function and viewing plane", () => {
     const { template } = hosting();
     const names = Object.keys(template.toJSON().Outputs).map((o) => o.replace(/[0-9A-F]{8}$/, ""));
     assert.deepEqual(names.sort(), [
@@ -180,9 +188,20 @@ describe("outputs", () => {
       "ArtifactsApiUrl",
       "ArtifactsBucketName",
       "ArtifactsControlLogGroupName",
+      "ArtifactsDistributionDomainName",
+      "ArtifactsDistributionId",
+      "ArtifactsKeyValueStoreArn",
+      "ArtifactsLoginDomainUrl",
+      "ArtifactsSessionKeysLogGroupName",
+      "ArtifactsSessionSecretArn",
       "ArtifactsSweepFunctionName",
       "ArtifactsTokenSecretArn",
+      "ArtifactsUserPoolClientId",
+      "ArtifactsUserPoolId",
+      "ArtifactsViewFunctionUrl",
+      "ArtifactsViewLogGroupName",
       "ArtifactsViewUrl",
+      "ArtifactsViewerRequestFunctionName",
     ]);
     const outputs = template.toJSON().Outputs as Record<string, { Value: unknown }>;
     const value = (name: string) =>

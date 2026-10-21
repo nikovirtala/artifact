@@ -6,6 +6,7 @@ export {
   type ArtifactHostingProps,
   type ArtifactLimits,
   type ArtifactViewDomain,
+  type ArtifactViewing,
 } from "./artifact-hosting.ts";
 export { ArtifactCertificate, type ArtifactCertificateProps } from "./certificate.ts";
 export {

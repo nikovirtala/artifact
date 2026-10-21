@@ -19,6 +19,13 @@ import {
   CertificateValidation,
   type ICertificate,
 } from "aws-cdk-lib/aws-certificatemanager";
+import type {
+  CachePolicy,
+  Function as CloudFrontFunction,
+  Distribution,
+  KeyValueStore,
+  OriginRequestPolicy,
+} from "aws-cdk-lib/aws-cloudfront";
 import {
   Alarm,
   ComparisonOperator,
@@ -27,7 +34,14 @@ import {
 } from "aws-cdk-lib/aws-cloudwatch";
 import { SnsAction } from "aws-cdk-lib/aws-cloudwatch-actions";
 import { PolicyStatement, Role, ServicePrincipal } from "aws-cdk-lib/aws-iam";
-import { Architecture, Code, Function as LambdaFunction, Runtime } from "aws-cdk-lib/aws-lambda";
+import {
+  type Alias,
+  Architecture,
+  Code,
+  type FunctionUrl,
+  Function as LambdaFunction,
+  Runtime,
+} from "aws-cdk-lib/aws-lambda";
 import { LogGroup, RetentionDays } from "aws-cdk-lib/aws-logs";
 import { ARecord, type IHostedZone, RecordTarget } from "aws-cdk-lib/aws-route53";
 import { ApiGatewayv2DomainProperties } from "aws-cdk-lib/aws-route53-targets";
@@ -51,11 +65,14 @@ import {
   literalDomainName,
   type ResolvedLimits,
   type ResolvedRetention,
+  type ResolvedViewing,
   resolveLimits,
   resolveRetention,
   resolveThrottle,
+  resolveViewing,
   zoneNameOf,
 } from "./validate.ts";
+import { buildViewingPlane } from "./viewing.ts";
 
 export interface ArtifactViewDomain {
   /** Where artifacts are viewed: `https://<id>.<name>/`; the gallery is `https://<name>/`. */
@@ -78,6 +95,23 @@ export interface ArtifactApiDomain {
   readonly hostedZone?: IHostedZone;
   /** A certificate in this stack's Region; default: one is created and DNS-validated. */
   readonly certificate?: ICertificate;
+}
+
+export interface ArtifactViewing {
+  /**
+   * Cap on concurrent viewing invocations (a guard against a runaway bill); default 20.
+   * Needs an account concurrency limit of at least 100 + the cap (Lambda keeps 100 unreserved),
+   * so the default needs ≥ 120; use `false` (no cap) on accounts below that, including new
+   * accounts that start at a concurrency limit of 10 (no cap of any size fits those).
+   */
+  readonly reservedConcurrency?: number | false;
+  /**
+   * Pre-warmed instances on a `live` alias; default none. Switching it on or off replaces the
+   * function URL; the distribution updates its origin in place.
+   */
+  readonly provisionedConcurrency?: number;
+  /** Session-key rotation label; change it and deploy to rotate (docs/decisions/0079); default "1". */
+  readonly sessionKeyRotation?: string;
 }
 
 export interface ArtifactLimits {
@@ -111,6 +145,8 @@ export interface ArtifactHostingProps {
   readonly throttle?: { readonly rateLimit?: number; readonly burstLimit?: number };
   /** Alarms on errors go to this address through an SNS topic; default: no alarms. */
   readonly alarmEmail?: string;
+  /** The viewing plane: concurrency and session-key rotation. */
+  readonly viewing?: ArtifactViewing;
 }
 
 /** The validated props. */
@@ -124,6 +160,7 @@ type Config = {
   throttle: { rateLimit: number; burstLimit: number };
   logRetention: RetentionDays;
   alarmEmail?: string;
+  viewing: ResolvedViewing;
 };
 
 function validate(props: ArtifactHostingProps, region: string): Config {
@@ -155,6 +192,7 @@ function validate(props: ArtifactHostingProps, region: string): Config {
     throttle: resolveThrottle(props.throttle),
     logRetention: props.logRetention ?? RetentionDays.ONE_MONTH,
     alarmEmail: checkAlarmEmail(props.alarmEmail),
+    viewing: resolveViewing(props.viewing),
   };
 }
 
@@ -183,7 +221,7 @@ const EMPTY_TOKEN_SECRET = '{"version":1,"tokens":[]}';
 export class ArtifactHosting extends Construct {
   /** `https://<apiDomain.name>`: the CLI's `--server` and the MCP base URL. */
   readonly apiUrl: string;
-  /** `https://<viewDomain.name>/`: the gallery (served from M10). */
+  /** `https://<viewDomain.name>/`: the gallery. */
   readonly viewUrl: string;
   readonly bucket: Bucket;
   /** The SHA-256 hashes of the API tokens (`artifact token`). */
@@ -204,6 +242,24 @@ export class ArtifactHosting extends Construct {
   readonly viewCertificate: ICertificate;
   /** Only with `alarmEmail`. */
   readonly alarmTopic?: Topic;
+  /** Serves `<view>` and `*.<view>` from the viewing function, behind the session check. */
+  readonly distribution: Distribution;
+  readonly viewFunction: LambdaFunction;
+  /** `AWS_IAM`: only the distribution (OAC) can call it. */
+  readonly viewFunctionUrl: FunctionUrl;
+  /** Only with `viewing.provisionedConcurrency`. */
+  readonly viewAlias?: Alias;
+  readonly viewLogGroup: LogGroup;
+  readonly viewerRequestFunction: CloudFrontFunction;
+  /** The session keys the edge verifies with, by `kid`. */
+  readonly keyValueStore: KeyValueStore;
+  /** The session key set the viewing function signs with. */
+  readonly sessionSecret: Secret;
+  /** Provisions and rotates the session keys (the `SessionKeys` custom resource). */
+  readonly sessionKeysFunction: LambdaFunction;
+  readonly viewCachePolicy: CachePolicy;
+  readonly viewOriginRequestPolicy: OriginRequestPolicy;
+  readonly loginOriginRequestPolicy: OriginRequestPolicy;
 
   constructor(scope: Construct, id: string, props: ArtifactHostingProps) {
     super(scope, id);
@@ -374,10 +430,12 @@ export class ArtifactHosting extends Construct {
       this.pruneSchedule = daily("PruneSchedule", { task: "prune", ...versions });
     }
 
+    let alarmAction: SnsAction | undefined;
     if (config.alarmEmail !== undefined) {
       this.alarmTopic = new Topic(this, "AlarmTopic");
       this.alarmTopic.addSubscription(new EmailSubscription(config.alarmEmail));
       const action = new SnsAction(this.alarmTopic);
+      alarmAction = action;
       const alarm = (name: string, metric: IMetric, threshold: number) =>
         new Alarm(this, name, {
           metric,
@@ -402,6 +460,29 @@ export class ArtifactHosting extends Construct {
         5,
       );
     }
+
+    const plane = buildViewingPlane(this, {
+      viewDomain: config.viewDomain,
+      hostedZone: config.viewZone,
+      certificate: this.viewCertificate,
+      bucket: this.bucket,
+      identity: this.identity,
+      viewing: config.viewing,
+      logRetention: config.logRetention,
+      alarmAction,
+    });
+    this.distribution = plane.distribution;
+    this.viewFunction = plane.viewFunction;
+    this.viewFunctionUrl = plane.viewFunctionUrl;
+    this.viewAlias = plane.viewAlias;
+    this.viewLogGroup = plane.viewLogGroup;
+    this.viewerRequestFunction = plane.viewerRequestFunction;
+    this.keyValueStore = plane.keyValueStore;
+    this.sessionSecret = plane.sessionSecret;
+    this.sessionKeysFunction = plane.sessionKeysFunction;
+    this.viewCachePolicy = plane.viewCachePolicy;
+    this.viewOriginRequestPolicy = plane.viewOriginRequestPolicy;
+    this.loginOriginRequestPolicy = plane.loginOriginRequestPolicy;
 
     const output = (name: string, value: string) => new CfnOutput(this, name, { value });
     output("ApiUrl", this.apiUrl);
