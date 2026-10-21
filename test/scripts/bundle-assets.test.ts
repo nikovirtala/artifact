@@ -3,13 +3,21 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { copyFileSync, mkdtempSync, readFileSync, rmSync, symlinkSync } from "node:fs";
+import {
+  copyFileSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
-import { type BundleReport, bundleAssets } from "../../scripts/bundle-assets.ts";
+import { type BundleReport, bundleAssets, copyEdge, EDGE } from "../../scripts/bundle-assets.ts";
 import { TS_SPECIFIER } from "../../scripts/lib/ts-specifier.ts";
+import { PLACEHOLDER_LINE } from "../../src/cdk/edge.ts";
 
 const repo = fileURLToPath(new URL("../../", import.meta.url));
 const VERSION = "9.8.7-test.1";
@@ -99,6 +107,37 @@ describe("bundleAssets", () => {
       { control: sha256("control"), sweep: sha256("sweep") },
       { control: fixture.control, sweep: fixture.sweep },
     );
+  });
+
+  it("copies the edge function byte for byte (docs/decisions/0080)", () => {
+    const source = readFileSync(join(repo, EDGE.source));
+    assert.equal(first.edge, join(dir, "a", EDGE.out));
+    assert.ok(readFileSync(first.edge).equals(source));
+  });
+
+  it("refuses an edge function whose first lines or placeholder were rewritten", () => {
+    const sandbox = mkdtempSync(join(tmpdir(), "artifact-edge-"));
+    try {
+      const good = readFileSync(join(repo, EDGE.source), "utf8");
+      const lines = good.split("\n");
+      const bad = [
+        good.replace('import crypto from "crypto";', 'import crypto from "node:crypto";'),
+        [lines[1], lines[0], ...lines.slice(2)].join("\n"),
+        [lines[0], lines[1], ...lines.slice(3)].join("\n"),
+        good.replace(`${PLACEHOLDER_LINE}\n`, ""),
+        `${good}${PLACEHOLDER_LINE}\n`,
+      ];
+      for (const [i, text] of bad.entries()) {
+        const file = join(sandbox, `bad-${i}.js`);
+        writeFileSync(file, text);
+        assert.throws(
+          () => copyEdge(join(sandbox, `out-${i}`), file),
+          /^Error: bundle-assets: edge /,
+        );
+      }
+    } finally {
+      rmSync(sandbox, { recursive: true, force: true });
+    }
   });
 
   it("is deterministic", () => {

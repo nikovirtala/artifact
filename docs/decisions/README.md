@@ -82,3 +82,4 @@ One short file per decision, numbered in order. Status is **Accepted** (in effec
 | [0076](0076-smoke-and-deploy-guide.md) | Smoke and retention scripts, CloudShell deploy guide, and the runtime SDK log line (V2 residual) | Accepted |
 | [0077](0077-version-from-tags.md) | Version releases from git tags and Conventional Commits | Accepted |
 | [0078](0078-session-cookie-and-keys.md) | Session cookie format, keys and shared test vectors | Accepted |
+| [0080](0080-edge-viewer-request-function.md) | Edge viewer-request function: host rules, session check, login passthrough, cookies stripped, `x-artifact-host` | Accepted |
