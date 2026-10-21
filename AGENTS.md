@@ -6,10 +6,9 @@ Linear history is required.
 
 - Before starting work and again before merging, run `git fetch` and rebase your branch onto `origin/main`.
 - After rebasing, verify every commit: `git rebase --exec "<test command>" origin/main`.
-- Merge only via fast-forward, so the commits on `main` are exactly the reviewed and signed commits; no merge commits, no squash or rebase merges.
+- Merge only via fast-forward or GitHub's "Rebase and merge", so `main` gets the reviewed commits as they are; no merge commits, no squash merges.
 - Never force-push `main`. On your own branches, use `git push --force-with-lease`, never `--force`.
 - Undo changes on `main` with `git revert`, never by rewriting history.
-- All commits and tags are signed.
 
 ## Commits
 
