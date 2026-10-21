@@ -110,6 +110,24 @@ describe("examples/personal", () => {
     Template.fromStack(prod.platform).hasResource("AWS::S3::Bucket", { DeletionPolicy: "Retain" });
   });
 
+  it("passes the stage's viewing options to the construct; prod sets none", () => {
+    assert.equal(stages.prod.viewing, undefined);
+    const viewing = { reservedConcurrency: 5, sessionKeyRotation: "2" } as const;
+    const { prod } = buildApp(new App(), { prod: { ...stages.prod, viewing } }, [OWNER]);
+    const template = Template.fromStack(prod.platform);
+    template.hasResourceProperties("AWS::Lambda::Function", { ReservedConcurrentExecutions: 5 });
+    template.hasResourceProperties("Custom::ArtifactSessionKeys", { Rotation: "2" });
+  });
+
+  it("keeps the prod viewing environment within 3500 bytes (the synth succeeds)", () => {
+    // viewingEnvironment throws at synth above 3500 bytes, counting tokens at their bound.
+    const { prod } = synth();
+    const view = Template.fromStack(prod.platform).findResources("AWS::Lambda::Function", {
+      Properties: { Environment: { Variables: { ARTIFACT_OWNERS: `["${OWNER}"]` } } },
+    });
+    assert.equal(Object.keys(view).length, 1);
+  });
+
   it("contains no email but the placeholder owner", () => {
     // M10 creates a Cognito user per owner, so the placeholder now appears in the templates.
     const text = normalised(synth().stacks);

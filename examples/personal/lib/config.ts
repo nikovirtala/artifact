@@ -1,7 +1,7 @@
 // The typed stage config of the reference deployment (docs/decisions/0075). Owners and the
 // alarm address come from the environment, so no email is ever committed.
 
-import type { ArtifactLimits } from "@nikovirtala/artifact/cdk";
+import type { ArtifactLimits, ArtifactViewing } from "@nikovirtala/artifact/cdk";
 import type { Duration, RemovalPolicy } from "aws-cdk-lib";
 import type { RetentionDays } from "aws-cdk-lib/aws-logs";
 
@@ -20,6 +20,8 @@ export type StageConfig = {
   versions?: { keepLast?: number; olderThan?: Duration };
   logRetention?: RetentionDays;
   limits?: ArtifactLimits;
+  /** Viewing concurrency and the session-key rotation label (rotate: change it and deploy). */
+  viewing?: ArtifactViewing;
 };
 
 /** `ARTIFACT_OWNERS`: comma-separated owner emails, required for any synth of the app. */

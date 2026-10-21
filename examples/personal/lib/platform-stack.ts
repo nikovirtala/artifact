@@ -1,4 +1,4 @@
-// The platform: `ArtifactHosting` with the stage's domains, owners and retention.
+// The platform: `ArtifactHosting` with the stage's domains, owners, retention and viewing options.
 
 import { ArtifactHosting, ArtifactIdentity } from "@nikovirtala/artifact/cdk";
 import { Stack, type StackProps } from "aws-cdk-lib";
@@ -33,6 +33,7 @@ export class PlatformStack extends Stack {
       logRetention: config.logRetention,
       limits: config.limits,
       alarmEmail: props.alarmEmail,
+      viewing: config.viewing,
     });
   }
 }
