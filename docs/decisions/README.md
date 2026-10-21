@@ -89,3 +89,4 @@ One short file per decision, numbered in order. Status is **Accepted** (in effec
 | [0083](0083-distribution-and-live-update.md) | Distribution, cache and origin request policies, DNS records and the live update of `prod` (nothing replaced) | Accepted |
 | [0084](0084-cognito-login-and-owners.md) | Cognito app client, managed login and owner users: public code-flow client, prefix derivation, branding, owners by hashed ids, pool untouched | Accepted |
 | [0085](0085-construct-api-m10.md) | Construct API for M10: the us-east-1 certificate rule, literal view domain, `viewing` props, outputs, tarball app in us-east-1, 2.0.0 | Accepted |
+| [0086](0086-m10-smoke-latency-guide.md) | M10 smoke checks S20–S41, the three-phase latency script and the CloudShell guide steps (j)–(o) | Accepted |
