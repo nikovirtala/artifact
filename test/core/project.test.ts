@@ -57,6 +57,15 @@ describe("normalizeProject: local paths", () => {
     assert.equal(norm("local:c:/Users/Niko/x"), "local:C:/Users/Niko/x");
     assert.equal(norm("local:C:\\"), "local:C:/");
   });
+
+  it("drops whitespace that trailing slashes hid, as it would at the end", () => {
+    assert.equal(norm("local:/a /"), "local:/a");
+    assert.equal(norm("local:/ /"), "local:/");
+    assert.equal(norm("local:a:/ \\"), "local:A:/");
+    assert.equal(norm("https://h.io/a/ /"), "h.io/a");
+    assert.equal(norm("https://h.io/a.git /"), "h.io/a");
+    assert.equal(norm("0/ /"), undefined);
+  });
 });
 
 describe("normalizeProject: rejects", () => {
@@ -101,6 +110,13 @@ describe("normalizeProject: rejects", () => {
   });
 });
 
+// Short strings over the characters the parser branches on, so edge cases such as `0/ /`
+// turn up on every run rather than once in millions.
+const syntax = fc.string({
+  unit: fc.constantFrom("a", "0", "/", "\\", ":", "@", " ", "\u00a0", "local:"),
+  maxLength: 6,
+});
+
 const label = fc.stringMatching(/^[a-z0-9](?:[a-z0-9-]{0,7}[a-z0-9])?$/);
 const segment = fc
   .stringMatching(/^[A-Za-z0-9_][A-Za-z0-9._-]{0,10}$/)
@@ -112,6 +128,13 @@ describe("normalizeProject: properties", () => {
   it("is idempotent on anything it accepts", () => {
     fc.assert(
       fc.property(fc.oneof(fc.string(), fc.webUrl(), fc.constantFrom("local:", "git@")), (raw) => {
+        const once = norm(raw);
+        if (once !== undefined) assert.equal(norm(once), once);
+      }),
+      { numRuns: 2000 },
+    );
+    fc.assert(
+      fc.property(syntax, (raw) => {
         const once = norm(raw);
         if (once !== undefined) assert.equal(norm(once), once);
       }),
