@@ -2,6 +2,8 @@
 // artifacts of the codebase it works in. Pure string handling, shared with the CLI.
 //   git remote URL        → `<host>/<path>`, lowercased (scheme, userinfo, port, `.git` dropped)
 //   `local:<absolute path>` → `local:<path>`, case kept, trailing `/` dropped
+// Trailing whitespace is dropped along with trailing `/` and `.git`, as the input is trimmed:
+// otherwise `0/ /` would normalise to `0/ `, which normalises to something else.
 import { fail, invalidInput, ok, type Result } from "./errors.ts";
 
 export const MAX_PROJECT_CHARS = 255;
@@ -47,7 +49,7 @@ function hasControl(s: string): boolean {
   return false;
 }
 
-/** POSIX `/…` or Windows `C:\…` / `C:/…` (as `C:/…`); trailing slashes dropped, root kept. */
+/** POSIX `/…` or Windows `C:\…` / `C:/…` (as `C:/…`); trailing slashes and whitespace dropped, root kept. */
 function localPath(path: string): string | undefined {
   let p: string;
   let root: string;
@@ -61,7 +63,7 @@ function localPath(path: string): string | undefined {
   } else {
     return undefined;
   }
-  p = p.replace(/\/+$/, "");
+  p = p.replace(/[/\s]+$/, "");
   return `${LOCAL}${p.length < root.length ? root : p}`;
 }
 
@@ -104,7 +106,7 @@ function remote(url: string): string | undefined {
   path = path.toLowerCase().replace(/^\/+/, "");
   for (let prev = ""; prev !== path; ) {
     prev = path;
-    path = path.replace(/\/+$/, "").replace(/\.git$/, "");
+    path = path.replace(/[/\s]+$/, "").replace(/\.git$/, "");
   }
   return path === "" ? undefined : `${host}/${path}`;
 }
