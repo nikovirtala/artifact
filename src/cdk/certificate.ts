@@ -7,7 +7,8 @@ import type { IHostedZone } from "aws-cdk-lib/aws-route53";
 import { Construct } from "constructs";
 import { checkInZone, domainName, zoneNameOf } from "./validate.ts";
 
-const CLOUDFRONT_REGION = "us-east-1";
+/** CloudFront takes certificates from this Region only (internal; not re-exported). */
+export const CLOUDFRONT_REGION = "us-east-1";
 
 export interface ArtifactCertificateProps {
   /** The view domain, e.g. `artifact.example.com`. */

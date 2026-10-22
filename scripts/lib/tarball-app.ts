@@ -1,7 +1,9 @@
 // The two files of a `cdk init` app that deploys `ArtifactHosting` from the tarball
 // (docs/decisions/0074): pack-test (b3) synthesizes it offline as `init-app`, and the CloudShell
 // guide deploys it as `tarball-app` (examples/personal/README.md, whose blocks must equal these).
-// The zone comes from context (`-c zoneId=… -c zoneName=…`), so no domain is written here.
+// The zone comes from context (`-c zoneId=… -c zoneName=…`), so no domain is written here. The
+// stack is in us-east-1, so the construct creates its own view certificate (docs/decisions/0085).
+// It reserves no viewing concurrency: an account's us-east-1 limit can be 10, too small for any cap.
 
 /** `tarball-app` → `TarballApp`. */
 function pascalCase(name: string): string {
@@ -28,7 +30,7 @@ export function tarballAppFiles(name: string): TarballAppFiles {
     'import * as cdk from "aws-cdk-lib";',
     `import { ${stackId} } from "../lib/${name}-stack";`,
     "const app = new cdk.App();",
-    `new ${stackId}(app, "${stackId}", { env: { account: process.env.CDK_DEFAULT_ACCOUNT, region: "eu-north-1" } });`,
+    `new ${stackId}(app, "${stackId}", { env: { account: process.env.CDK_DEFAULT_ACCOUNT, region: "us-east-1" } });`,
     "",
   ].join("\n");
   const stack = [
@@ -48,6 +50,7 @@ export function tarballAppFiles(name: string): TarballAppFiles {
     "      apiDomain: { name: `api.tarball.${zoneName}` },",
     '      identity: ArtifactIdentity.cognito({ owners: (process.env.ARTIFACT_OWNERS ?? "").split(",") }),',
     "      dataRetention: { onDestroy: RemovalPolicy.DESTROY, versions: { keepLast: 2 } },",
+    "      viewing: { reservedConcurrency: false },",
     "    });",
     "  }",
     "}",

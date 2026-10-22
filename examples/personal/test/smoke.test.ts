@@ -18,9 +18,10 @@ import {
   parseRequestLine,
   parseRuntimeLine,
   postTo,
+  runtimeVerdict,
   seenPairs,
 } from "../scripts/lib/logs.ts";
-import { matchOutputs } from "../scripts/lib/outputs.ts";
+import { matchOutputs, OUTPUT_NAMES } from "../scripts/lib/outputs.ts";
 import { Checks, exitCode, redact, renderTable } from "../scripts/lib/table.ts";
 import {
   bucketResult,
@@ -74,6 +75,24 @@ describe("stack outputs", () => {
     assert.deepEqual(matchOutputs(outputs, "Other", ["ApiUrl"]), { ApiUrl: "x" });
   });
 
+  it("include the eleven viewing-plane outputs", () => {
+    for (const name of [
+      "DistributionId",
+      "DistributionDomainName",
+      "ViewFunctionUrl",
+      "ViewLogGroupName",
+      "ViewerRequestFunctionName",
+      "KeyValueStoreArn",
+      "SessionSecretArn",
+      "SessionKeysLogGroupName",
+      "UserPoolId",
+      "UserPoolClientId",
+      "LoginDomainUrl",
+    ] as const) {
+      assert.ok(OUTPUT_NAMES.includes(name), name);
+    }
+  });
+
   it("name a missing output as bad input", () => {
     assert.throws(
       () => matchOutputs(outputs, "Artifacts", ["ApiUrl", "PruneScheduleName"]),
@@ -90,8 +109,13 @@ describe("arguments", () => {
       skipRevokeCheck: false,
       keep: false,
       help: false,
+      viewOnly: false,
+      skipView: false,
     });
     assert.equal(parseSmokeArgs(["--skip-revoke-check", "--keep"]).skipRevokeCheck, true);
+    assert.equal(parseSmokeArgs(["--view-only"]).viewOnly, true);
+    assert.equal(parseSmokeArgs(["--skip-view"]).skipView, true);
+    assert.throws(() => parseSmokeArgs(["--view-only", "--skip-view"]), InputError);
     assert.throws(() => parseSmokeArgs(["--stage", "nope"]), InputError);
     assert.throws(() => parseSmokeArgs(["--bogus"]), InputError);
     assert.throws(() => parseSmokeArgs(["extra"]), InputError);
@@ -142,6 +166,7 @@ describe("arguments", () => {
       ["scripts/retention-check.ts", ["bucket"]],
       ["scripts/retention-check.ts", ["bucket", "--bucket", "b", "--region", "r"]],
       ["scripts/smoke.ts", ["--stage", "nope"]],
+      ["scripts/smoke.ts", ["--view-only", "--skip-view"]],
       ["scripts/check-dns.ts", ["--bogus"]],
     ] as const) {
       const r = spawnSync(process.execPath, ["--conditions=artifact-source", script, ...args], {
@@ -230,6 +255,40 @@ describe("log parsers", () => {
     for (const bad of ["artifact runtime {", "artifact runtime", "INIT_START Runtime Version"]) {
       assert.equal(parseRuntimeLine(bad), undefined, bad);
     }
+  });
+});
+
+describe("S39 predicate", () => {
+  const runtime = (t: number) =>
+    ev(
+      `2026-10-21T10:00:00.000Z\t-\tINFO\tartifact runtime {"node":"v24.22.0","package":"2.0.0"}`,
+      t,
+    );
+  const initError = (t: number, name = "Runtime.ImportModuleError") =>
+    ev(
+      `2026-10-21T10:00:00.000Z\tundefined\tERROR\tUncaught Exception {"errorType":"${name}","errorMessage":"x"}`,
+      t,
+    );
+
+  it("passes on a runtime line newer than a stale init error", () => {
+    const verdict = runtimeVerdict([initError(T), runtime(T + 1000)]);
+    assert.equal(verdict.status, "pass");
+  });
+
+  it("fails on an init error newer than the newest runtime line, naming the error only", () => {
+    assert.deepEqual(runtimeVerdict([runtime(T), initError(T + 1000)]), {
+      status: "fail",
+      detail: "init error Runtime.ImportModuleError",
+    });
+    const enoent = runtimeVerdict([
+      ev("Error: ENOENT: no such file or directory, open '/var/task/reload-client.js'", T),
+    ]);
+    assert.deepEqual(enoent, { status: "fail", detail: "init error ENOENT" });
+  });
+
+  it("waits while there is neither", () => {
+    assert.deepEqual(runtimeVerdict([ev("START RequestId: x", T)]), { status: "wait" });
+    assert.deepEqual(runtimeVerdict([]), { status: "wait" });
   });
 });
 

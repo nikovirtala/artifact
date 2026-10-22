@@ -59,6 +59,90 @@ function limits(env: Env): RuntimeLimits {
   return record as RuntimeLimits;
 }
 
+export type ViewingEnv = {
+  bucket: string;
+  /** Lowercase. */
+  viewDomain: string;
+  sessionSecretArn: string;
+  oidc: {
+    issuer: string;
+    authorizeUrl: string;
+    tokenUrl: string;
+    logoutUrl: string;
+    clientId: string;
+  };
+  /** Lowercase emails. */
+  owners: string[];
+};
+
+const CLIENT_ID = /^[A-Za-z0-9_+-]{1,128}$/;
+const OWNER_EMAIL = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+const MAX_OWNERS = 50;
+
+function httpsUrl(env: Env, name: string): string {
+  const value = required(env, name);
+  let protocol = "";
+  try {
+    protocol = new URL(value).protocol;
+  } catch {
+    // Reported below.
+  }
+  if (protocol !== "https:") throw new Error(`artifact: ${name} must be an https URL`);
+  return value;
+}
+
+function owners(env: Env): string[] {
+  const name = "ARTIFACT_OWNERS";
+  const invalid = () =>
+    new Error(`artifact: ${name} must be a JSON array of 1 to ${MAX_OWNERS} lowercase emails`);
+  let value: unknown;
+  try {
+    value = JSON.parse(required(env, name));
+  } catch (error) {
+    if ((error as Error).message.startsWith("artifact:")) throw error;
+    throw invalid();
+  }
+  if (!Array.isArray(value) || value.length < 1 || value.length > MAX_OWNERS) throw invalid();
+  for (const owner of value) {
+    if (typeof owner !== "string" || owner !== owner.toLowerCase() || !OWNER_EMAIL.test(owner)) {
+      throw invalid();
+    }
+  }
+  return value as string[];
+}
+
+/** The viewing Lambda (docs/decisions/0082): read-only S3, the session secret and the OIDC client. */
+export function parseViewingEnv(env: Env): ViewingEnv {
+  const bucket = required(env, "ARTIFACT_BUCKET");
+  const viewDomain = required(env, "ARTIFACT_VIEW_DOMAIN");
+  try {
+    new DomainHostPolicy({ viewDomain });
+  } catch {
+    throw new Error("artifact: ARTIFACT_VIEW_DOMAIN must be a bare domain name");
+  }
+  const sessionSecretArn = required(env, "ARTIFACT_SESSION_SECRET_ARN");
+  if (!SECRET_ARN.test(sessionSecretArn)) {
+    throw new Error("artifact: ARTIFACT_SESSION_SECRET_ARN must be a Secrets Manager secret ARN");
+  }
+  const oidc = {
+    issuer: httpsUrl(env, "ARTIFACT_OIDC_ISSUER"),
+    authorizeUrl: httpsUrl(env, "ARTIFACT_OIDC_AUTHORIZE_URL"),
+    tokenUrl: httpsUrl(env, "ARTIFACT_OIDC_TOKEN_URL"),
+    logoutUrl: httpsUrl(env, "ARTIFACT_OIDC_LOGOUT_URL"),
+    clientId: required(env, "ARTIFACT_OIDC_CLIENT_ID"),
+  };
+  if (!CLIENT_ID.test(oidc.clientId)) {
+    throw new Error("artifact: ARTIFACT_OIDC_CLIENT_ID must be 1 to 128 of [A-Za-z0-9_+-]");
+  }
+  return {
+    bucket,
+    viewDomain: viewDomain.toLowerCase(),
+    sessionSecretArn,
+    oidc,
+    owners: owners(env),
+  };
+}
+
 export function parseSweepEnv(env: Env): SweepEnv {
   return { bucket: required(env, "ARTIFACT_BUCKET"), limits: limits(env) };
 }

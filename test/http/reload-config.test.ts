@@ -133,6 +133,33 @@ describe("reload client, sse, domain config", () => {
   });
 });
 
+describe("reload client, transport none (AWS before M11, docs/decisions/0082)", () => {
+  const NONE: ReloadClientConfig = { ...DOMAIN, transport: "none" };
+
+  it("renders the none config line", () => {
+    assert.equal(
+      renderReloadConfig(NONE),
+      'const __artifactReloadConfig = { transport: "none", viewSuffix: ".art.example.dev", pathMode: false };',
+    );
+    assert.deepEqual(globalsAfter(reloadScript(NONE)), []);
+  });
+
+  it("opens no EventSource on any page", () => {
+    const script = reloadScript(NONE);
+    for (const url of [
+      `https://${ID}.art.example.dev/`,
+      `https://${ID}.art.example.dev/docs/`,
+      `https://${ID}.art.example.dev/v/1/`,
+      "https://art.example.dev/",
+    ]) {
+      const page = load(script, url);
+      assert.equal(page.sources.length, 0, url);
+      assert.equal(page.reloads, 0, url);
+      assert.deepEqual(page.appended, [], url);
+    }
+  });
+});
+
 describe("GET /__artifact/reload.js with a config", () => {
   it("serves the configured prefix followed by the shared client", async () => {
     const { service } = harness();

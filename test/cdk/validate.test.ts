@@ -1,9 +1,11 @@
-// Synth-time validation of the construct's props (docs/decisions/0071): domains, zones, the API
-// host rule, AWS limits with their ceilings and binary headroom, throttle and alarm email.
+// Synth-time validation of the construct's props (docs/decisions/0071, 0085): domains, the
+// literal view domain, the view certificate rule, zones, the API host rule, AWS limits with
+// their ceilings and binary headroom, throttle and alarm email.
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { App, Lazy, type Stack } from "aws-cdk-lib";
+import { App, CfnParameter, Lazy, Stack } from "aws-cdk-lib";
 import { Template } from "aws-cdk-lib/assertions";
+import { Certificate, type ICertificate } from "aws-cdk-lib/aws-certificatemanager";
 import { HostedZone } from "aws-cdk-lib/aws-route53";
 import {
   ArtifactHosting,
@@ -11,7 +13,18 @@ import {
   AWS_LIMIT_CEILINGS,
   AWS_LIMIT_DEFAULTS,
 } from "../../src/cdk/index.ts";
-import { API, baseProps, hosting, testStack, testZone, VIEW } from "./helpers.ts";
+import {
+  ACCOUNT,
+  API,
+  baseProps,
+  hosting,
+  resources,
+  testStack,
+  testZone,
+  VIEW,
+  VIEW_CERTIFICATE_ARN,
+  viewCertificate,
+} from "./helpers.ts";
 
 const MIB = 1024 * 1024;
 
@@ -54,18 +67,121 @@ describe("domain names", () => {
     }
   });
 
-  it("accepts tokens unchecked", () => {
+  it("rejects a token view domain name: the edge function embeds it", () => {
     const stack = testStack();
     const zone = HostedZone.fromHostedZoneAttributes(stack, "Zone", {
       hostedZoneId: "Z0000000000000000000",
       zoneName: Lazy.string({ produce: () => "example.dev" }),
     });
     const name = Lazy.string({ produce: () => VIEW });
-    const construct = new ArtifactHosting(stack, "Artifacts", {
-      ...baseProps(zone),
-      viewDomain: { name, hostedZone: zone },
-    });
-    assert.ok(construct.viewUrl.includes("${Token["));
+    assert.throws(
+      () =>
+        new ArtifactHosting(stack, "Artifacts", {
+          ...baseProps(zone),
+          viewDomain: { name, hostedZone: zone, certificate: viewCertificate(stack) },
+        }),
+      /^Error: viewDomain.name must be a literal domain name \(the edge function embeds it\)$/,
+    );
+  });
+});
+
+describe("the view certificate", () => {
+  const inRegion = (region?: string) =>
+    new Stack(new App(), "Test", region ? { env: { account: ACCOUNT, region } } : {});
+  /** One construct in `stack` whose view domain has `certificate` (or none). */
+  const withCertificate = (stack: Stack, certificate?: ICertificate) => {
+    const hostedZone = testZone(stack);
+    return new ArtifactHosting(
+      stack,
+      "Artifacts",
+      baseProps(hostedZone, { viewDomain: { name: VIEW, hostedZone, certificate } }),
+    );
+  };
+
+  it("is required unless the stack is in us-east-1, also in an environment-agnostic stack", () => {
+    for (const region of ["eu-north-1", undefined]) {
+      assert.throws(
+        () => withCertificate(inRegion(region)),
+        /^Error: viewDomain.certificate is required unless the stack is in us-east-1$/,
+        String(region),
+      );
+    }
+  });
+
+  it("must be in us-east-1 when its ARN is a literal", () => {
+    const stack = inRegion("eu-north-1");
+    const arn = VIEW_CERTIFICATE_ARN.replace("us-east-1", "eu-north-1");
+    assert.throws(
+      () => withCertificate(stack, Certificate.fromCertificateArn(stack, "Cert", arn)),
+      /^Error: viewDomain.certificate must be in us-east-1 \(CloudFront\)$/,
+    );
+  });
+
+  it("is accepted unchecked when its ARN is a token, also in an environment-agnostic stack", () => {
+    for (const region of ["eu-north-1", undefined]) {
+      const stack = inRegion(region);
+      const arn = new CfnParameter(stack, "CertArn").valueAsString;
+      const certificate = Certificate.fromCertificateArn(stack, "Cert", arn);
+      assert.equal(withCertificate(stack, certificate).viewCertificate, certificate);
+    }
+  });
+
+  it("is kept when given", () => {
+    const { construct, stack } = hosting();
+    assert.equal(construct.viewCertificate, viewCertificate(stack));
+  });
+
+  it("is created for the apex and the wildcard in a us-east-1 stack without one", () => {
+    const stack = inRegion("us-east-1");
+    const construct = withCertificate(stack);
+    const created = resources(
+      Template.fromStack(stack),
+      "AWS::CertificateManager::Certificate",
+    ).filter(([id]) => id.startsWith("ArtifactsViewCertificate"));
+    assert.equal(created.length, 1);
+    const [[id, certificate]] = created;
+    assert.equal(certificate.Properties?.DomainName, VIEW);
+    assert.deepEqual(certificate.Properties?.SubjectAlternativeNames, [`*.${VIEW}`]);
+    assert.equal(certificate.Properties?.ValidationMethod, "DNS");
+    assert.deepEqual(stack.resolve(construct.viewCertificate.certificateArn), { Ref: id });
+  });
+});
+
+describe("viewing", () => {
+  const viewing = (v: ArtifactHostingProps["viewing"]) => build((p) => ({ ...p, viewing: v }));
+
+  it("accepts the defaults, no cap, a cap with provisioned instances and a rotation label", () => {
+    viewing(undefined);
+    viewing({ reservedConcurrency: false, provisionedConcurrency: 3 });
+    viewing({ reservedConcurrency: 1000, provisionedConcurrency: 1000 });
+    viewing({ reservedConcurrency: 1, sessionKeyRotation: "2026-10-21.a_B" });
+    viewing({ sessionKeyRotation: "x".repeat(64) });
+  });
+
+  it("rejects bad reserved and provisioned concurrency and rotation labels", () => {
+    for (const reservedConcurrency of [0, 1001, 1.5, -1, true as unknown as number]) {
+      assert.throws(
+        () => viewing({ reservedConcurrency }),
+        /^Error: viewing.reservedConcurrency must be an integer from 1 to 1000, or false$/,
+        String(reservedConcurrency),
+      );
+    }
+    for (const provisionedConcurrency of [0, 1.5, -1]) {
+      assert.throws(
+        () => viewing({ provisionedConcurrency }),
+        /^Error: viewing.provisionedConcurrency must be a positive integer$/,
+      );
+    }
+    assert.throws(
+      () => viewing({ provisionedConcurrency: 21 }),
+      /^Error: viewing.provisionedConcurrency must not exceed viewing.reservedConcurrency \(20\)$/,
+    );
+    for (const sessionKeyRotation of ["", "a b", "x".repeat(65), "ä"]) {
+      assert.throws(
+        () => viewing({ sessionKeyRotation }),
+        /^Error: viewing.sessionKeyRotation must be 1 to 64 of \[A-Za-z0-9._-\]$/,
+      );
+    }
   });
 });
 
@@ -223,7 +339,7 @@ describe("construct rules", () => {
     new ArtifactHosting(stack, "One", baseProps(zone));
     new ArtifactHosting(stack, "Two", {
       ...baseProps(zone),
-      viewDomain: { name: `two.${VIEW}`, hostedZone: zone },
+      viewDomain: { name: `two.${VIEW}`, hostedZone: zone, certificate: viewCertificate(stack) },
       apiDomain: { name: `api.two.${VIEW}` },
     });
     const template = Template.fromStack(stack);

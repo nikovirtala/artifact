@@ -1,7 +1,9 @@
 // Shared fixtures for the construct tests: a stack in a placeholder account with a created zone.
 import { App, Stack, type StackProps } from "aws-cdk-lib";
 import { Template } from "aws-cdk-lib/assertions";
+import { Certificate, type ICertificate } from "aws-cdk-lib/aws-certificatemanager";
 import { HostedZone, type IHostedZone, PublicHostedZone } from "aws-cdk-lib/aws-route53";
+import type { Construct } from "constructs";
 import {
   ArtifactHosting,
   type ArtifactHostingProps,
@@ -33,9 +35,29 @@ export function createdZone(stack: Stack, id = "Zone"): IHostedZone {
   return new PublicHostedZone(stack, id, { zoneName: ZONE });
 }
 
+export const VIEW_CERTIFICATE_ARN =
+  "arn:aws:acm:us-east-1:123456789012:certificate/00000000-0000-0000-0000-000000000000";
+
+const viewCertificates = new WeakMap<Stack, ICertificate>();
+
+/** An imported us-east-1 view certificate, one per stack, so baseProps can be called twice. */
+export function viewCertificate(scope: Construct): ICertificate {
+  const stack = Stack.of(scope);
+  let certificate = viewCertificates.get(stack);
+  if (certificate === undefined) {
+    certificate = Certificate.fromCertificateArn(stack, "ViewCert", VIEW_CERTIFICATE_ARN);
+    viewCertificates.set(stack, certificate);
+  }
+  return certificate;
+}
+
 export function baseProps(zone: IHostedZone, overrides: Partial<ArtifactHostingProps> = {}) {
   return {
-    viewDomain: { name: VIEW, hostedZone: zone },
+    viewDomain: overrides.viewDomain ?? {
+      name: VIEW,
+      hostedZone: zone,
+      certificate: viewCertificate(zone),
+    },
     apiDomain: { name: API },
     identity: ArtifactIdentity.cognito({ owners: [OWNER] }),
     ...overrides,

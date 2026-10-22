@@ -16,6 +16,7 @@ const here = fileURLToPath(new URL("..", import.meta.url));
 const examples = join(here, "..");
 const repo = join(examples, "..");
 const snapshotFile = join(here, "test", "__snapshots__", "prod.json");
+const m9File = join(here, "test", "__snapshots__", "m9-platform.json");
 const OWNER = "owner@example.com";
 const TWELVE_DIGITS = /\b\d{12}\b/;
 
@@ -47,6 +48,41 @@ describe("examples/personal", () => {
     assert.doesNotMatch(actual, TWELVE_DIGITS);
   });
 
+  it("keeps every M9 resource", () => {
+    // m9-platform.json is prod.json as deployed by M9 (55a26c0), never regenerated. Each M9
+    // resource must keep its Type and its Properties, DeletionPolicy and UpdateReplacePolicy,
+    // so the update of the live stacks replaces nothing. IN_PLACE lists the resources whose
+    // Properties may change in place, with the reason.
+    const IN_PLACE: Record<string, Record<string, string>> = {
+      platform: {
+        // M10: the cross-Region reader also reads the view certificate's ARN for the
+        // distribution (docs/decisions/0083); a custom resource, modified in place.
+        ExportsReader8B249524: "reads one more cross-Region import",
+      },
+    };
+    type Resource = Record<
+      "Type" | "Properties" | "DeletionPolicy" | "UpdateReplacePolicy",
+      unknown
+    >;
+    type Templates = Record<string, { Resources: Record<string, Resource> }>;
+    const m9 = JSON.parse(readFileSync(m9File, "utf8")) as Templates;
+    const actual = JSON.parse(normalised(synth().stacks)) as Templates;
+    assert.deepEqual(Object.keys(m9), ["dns", "certificate", "platform"]);
+    for (const [stack, template] of Object.entries(m9)) {
+      for (const [id, before] of Object.entries(template.Resources)) {
+        const after = actual[stack].Resources[id];
+        assert.ok(after, `${stack}: ${id} is gone`);
+        assert.equal(after.Type, before.Type, `${stack}: ${id} Type`);
+        for (const key of ["DeletionPolicy", "UpdateReplacePolicy"] as const) {
+          assert.deepEqual(after[key], before[key], `${stack}: ${id} ${key}`);
+        }
+        if (IN_PLACE[stack]?.[id] === undefined) {
+          assert.deepEqual(after.Properties, before.Properties, `${stack}: ${id} Properties`);
+        }
+      }
+    }
+  });
+
   it("derives stack names from the stage, in the right Regions, with cross-Region references", () => {
     const { prod, stacks } = synth();
     assert.equal(prod.stageName, "prod");
@@ -74,10 +110,29 @@ describe("examples/personal", () => {
     Template.fromStack(prod.platform).hasResource("AWS::S3::Bucket", { DeletionPolicy: "Retain" });
   });
 
-  it("contains no owner but the placeholder", () => {
+  it("passes the stage's viewing options to the construct; prod sets none", () => {
+    assert.equal(stages.prod.viewing, undefined);
+    const viewing = { reservedConcurrency: 5, sessionKeyRotation: "2" } as const;
+    const { prod } = buildApp(new App(), { prod: { ...stages.prod, viewing } }, [OWNER]);
+    const template = Template.fromStack(prod.platform);
+    template.hasResourceProperties("AWS::Lambda::Function", { ReservedConcurrentExecutions: 5 });
+    template.hasResourceProperties("Custom::ArtifactSessionKeys", { Rotation: "2" });
+  });
+
+  it("keeps the prod viewing environment within 3500 bytes (the synth succeeds)", () => {
+    // viewingEnvironment throws at synth above 3500 bytes, counting tokens at their bound.
+    const { prod } = synth();
+    const view = Template.fromStack(prod.platform).findResources("AWS::Lambda::Function", {
+      Properties: { Environment: { Variables: { ARTIFACT_OWNERS: `["${OWNER}"]` } } },
+    });
+    assert.equal(Object.keys(view).length, 1);
+  });
+
+  it("contains no email but the placeholder owner", () => {
+    // M10 creates a Cognito user per owner, so the placeholder now appears in the templates.
     const text = normalised(synth().stacks);
     const emails = text.match(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[a-z]{2,}/g) ?? [];
-    assert.deepEqual([...new Set(emails)], []);
+    assert.deepEqual([...new Set(emails)], [OWNER]);
     const owners = synth().prod.platform.artifacts.identity.owners;
     assert.deepEqual(owners, [OWNER]);
   });

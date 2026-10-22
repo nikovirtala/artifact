@@ -30,6 +30,17 @@
       "quoteStyle": "double"
     }
   },
+  "overrides": [
+    {
+      "includes": ["src/runtime/edge/**"],
+      "linter": {
+        "rules": {
+          "style": { "useNodejsImportProtocol": "off" },
+          "correctness": { "noUnusedVariables": "off" }
+        }
+      }
+    }
+  ],
   "assist": {
     "enabled": true,
     "actions": {

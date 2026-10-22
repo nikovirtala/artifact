@@ -60,10 +60,10 @@ describe("security shape", () => {
     }
   });
 
-  it("deletes all three log groups with the stack and keeps them 30 days by default", () => {
+  it("deletes all five log groups with the stack and keeps them 30 days by default", () => {
     const { template } = hosting();
     const groups = Object.values(template.findResources("AWS::Logs::LogGroup"));
-    assert.equal(groups.length, 3);
+    assert.equal(groups.length, 5);
     for (const group of groups) {
       assert.equal(group.DeletionPolicy, "Delete");
       assert.equal(group.UpdateReplacePolicy, "Delete");

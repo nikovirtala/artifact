@@ -3,7 +3,9 @@
 // their environment but never re-validate domains. The AWS limits live here and only here
 // (docs/decisions/0066).
 import { Duration, RemovalPolicy, Token } from "aws-cdk-lib";
+import type { ICertificate } from "aws-cdk-lib/aws-certificatemanager";
 import type { IHostedZone } from "aws-cdk-lib/aws-route53";
+import { CLOUDFRONT_REGION } from "./certificate.ts";
 
 const MIB = 1024 * 1024;
 
@@ -42,6 +44,33 @@ export function domainName(path: string, value: unknown): string {
     throw new Error(`${path} must be a bare domain name, got ${JSON.stringify(value)}`);
   }
   return name;
+}
+
+/** The view domain: a bare domain name and a literal, because the edge function embeds it. */
+export function literalDomainName(path: string, value: unknown): string {
+  const name = domainName(path, value);
+  if (Token.isUnresolved(name)) {
+    throw new Error(`${path} must be a literal domain name (the edge function embeds it)`);
+  }
+  return name;
+}
+
+/**
+ * The CloudFront certificate rule (docs/decisions/0085). A given certificate with a literal ARN
+ * must be in CLOUDFRONT_REGION; a token ARN is accepted unchecked (CloudFront rejects another
+ * Region at deploy time). Without one, only a stack whose Region is literally CLOUDFRONT_REGION
+ * may create it: an environment-agnostic stack could deploy anywhere.
+ */
+export function checkViewCertificate(certificate: ICertificate | undefined, region: string): void {
+  if (certificate !== undefined) {
+    const arn = certificate.certificateArn;
+    if (!Token.isUnresolved(arn) && !arn.includes(`:${CLOUDFRONT_REGION}:`)) {
+      throw new Error(`viewDomain.certificate must be in ${CLOUDFRONT_REGION} (CloudFront)`);
+    }
+    return;
+  }
+  if (!Token.isUnresolved(region) && region === CLOUDFRONT_REGION) return;
+  throw new Error(`viewDomain.certificate is required unless the stack is in ${CLOUDFRONT_REGION}`);
 }
 
 /**
@@ -186,6 +215,52 @@ export function resolveThrottle(throttle: ThrottleInput = {}): Required<Throttle
     }
   }
   return resolved;
+}
+
+export type ViewingInput = {
+  reservedConcurrency?: number | false;
+  provisionedConcurrency?: number;
+  sessionKeyRotation?: string;
+};
+
+export type ResolvedViewing = {
+  /** Undefined: no cap. */
+  reservedConcurrency?: number;
+  provisionedConcurrency?: number;
+  sessionKeyRotation: string;
+};
+
+const ROTATION_LABEL = /^[A-Za-z0-9._-]{1,64}$/;
+
+/** The viewing options (docs/decisions/0085): a reserved cap of 20 and the label "1" by default. */
+export function resolveViewing(viewing: ViewingInput = {}): ResolvedViewing {
+  const reserved = viewing.reservedConcurrency ?? 20;
+  if (
+    reserved !== false &&
+    !(Number.isSafeInteger(reserved) && reserved >= 1 && reserved <= 1000)
+  ) {
+    throw new Error("viewing.reservedConcurrency must be an integer from 1 to 1000, or false");
+  }
+  const provisioned = viewing.provisionedConcurrency;
+  if (provisioned !== undefined) {
+    if (!Number.isSafeInteger(provisioned) || provisioned < 1) {
+      throw new Error("viewing.provisionedConcurrency must be a positive integer");
+    }
+    if (reserved !== false && provisioned > reserved) {
+      throw new Error(
+        `viewing.provisionedConcurrency must not exceed viewing.reservedConcurrency (${reserved})`,
+      );
+    }
+  }
+  const rotation = viewing.sessionKeyRotation ?? "1";
+  if (typeof rotation !== "string" || !ROTATION_LABEL.test(rotation)) {
+    throw new Error("viewing.sessionKeyRotation must be 1 to 64 of [A-Za-z0-9._-]");
+  }
+  return {
+    ...(reserved === false ? {} : { reservedConcurrency: reserved }),
+    ...(provisioned === undefined ? {} : { provisionedConcurrency: provisioned }),
+    sessionKeyRotation: rotation,
+  };
 }
 
 export function checkAlarmEmail(email: string | undefined): string | undefined {

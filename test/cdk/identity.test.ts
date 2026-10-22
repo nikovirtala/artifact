@@ -1,4 +1,5 @@
-// The Cognito identity in M9 (docs/decisions/0069): the user pool and validated owners, no users.
+// The Cognito identity (docs/decisions/0069, 0084): the user pool, unchanged since M9, and the
+// validated owners. The M10 client, domain and users are in login-identity.test.ts.
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { Match } from "aws-cdk-lib/assertions";
@@ -19,9 +20,28 @@ describe("ArtifactIdentity.cognito", () => {
         UserPoolName: Match.absent(),
       }),
     });
-    template.resourceCountIs("AWS::Cognito::UserPoolUser", 0);
-    template.resourceCountIs("AWS::Cognito::UserPoolClient", 0);
     assert.ok(construct.identity.userPool);
+  });
+
+  it("keeps the pool's properties exactly as M9 deployed them (no template, plan or add-ons)", () => {
+    const { template } = hosting();
+    const [pool] = Object.values(template.findResources("AWS::Cognito::UserPool"));
+    const code = "The verification code to your new account is {####}";
+    assert.deepEqual(pool.Properties, {
+      AccountRecoverySetting: { RecoveryMechanisms: [{ Name: "verified_email", Priority: 1 }] },
+      AdminCreateUserConfig: { AllowAdminCreateUserOnly: true },
+      AutoVerifiedAttributes: ["email"],
+      EmailVerificationMessage: code,
+      EmailVerificationSubject: "Verify your new account",
+      SmsVerificationMessage: code,
+      UsernameAttributes: ["email"],
+      VerificationMessageTemplate: {
+        DefaultEmailOption: "CONFIRM_WITH_CODE",
+        EmailMessage: code,
+        EmailSubject: "Verify your new account",
+        SmsMessage: code,
+      },
+    });
   });
 
   it("normalises owners and keeps them on the binding", () => {

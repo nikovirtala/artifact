@@ -84,6 +84,39 @@ export function parseRuntimeLine(message: string): Record<string, unknown> | und
   return parseObject(message.slice(at + RUNTIME_PREFIX.length).trim());
 }
 
+/** A Lambda init failure: a missing module or SDK package (S19). */
+export const INIT_ERROR =
+  /Runtime\.ImportModuleError|ERR_MODULE_NOT_FOUND|Cannot find package '@aws-sdk\//;
+/** The viewing function's init failures: S19's, plus `ENOENT` for a missing `reload-client.js`. */
+const VIEW_INIT_ERROR = new RegExp(`${INIT_ERROR.source}|ENOENT`);
+
+export type RuntimeVerdict =
+  | { status: "pass"; info: Record<string, unknown> }
+  | { status: "fail"; detail: string }
+  | { status: "wait" };
+
+/**
+ * S39 (design-review NIT 2): an init error newer than the newest runtime line fails, naming the
+ * error only; with no runtime line, any init error fails. A runtime line newer than every init
+ * error passes, so an error fixed by a redeploy does not keep failing for a day.
+ */
+export function runtimeVerdict(events: readonly LogEvent[]): RuntimeVerdict {
+  let newest: { info: Record<string, unknown>; timestamp: number } | undefined;
+  for (const event of events) {
+    const info = parseRuntimeLine(event.message);
+    if (info && (newest === undefined || event.timestamp >= newest.timestamp)) {
+      newest = { info, timestamp: event.timestamp };
+    }
+  }
+  for (const event of events) {
+    const match = VIEW_INIT_ERROR.exec(event.message);
+    if (match && (newest === undefined || event.timestamp > newest.timestamp)) {
+      return { status: "fail", detail: `init error ${match[0]}` };
+    }
+  }
+  return newest ? { status: "pass", info: newest.info } : { status: "wait" };
+}
+
 /** A POST to `path`, whatever prefix API Gateway puts in `$context.path` (A19). */
 export function postTo(line: AccessLine | undefined, path: string): boolean {
   return line?.method === "POST" && (line.path === path || line.path.endsWith(path));

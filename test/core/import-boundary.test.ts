@@ -297,6 +297,24 @@ describe("v2 import boundaries", () => {
     assert.deepEqual(layoutViolations(join(src, "cdk", "x.ts"), cdk), ["../../aws/x.ts"]);
   });
 
+  // M10 (docs/decisions/0080): cloudfront-js-2.0 resolves only its own modules, and the construct
+  // renders the edge source from the built asset, never from src/runtime/.
+  it("the edge function imports only cloudfront and crypto", () => {
+    const edge = join(src, "runtime", "edge", "viewer-request.js");
+    assert.deepEqual(specifiers(readFileSync(edge, "utf8")), ["cloudfront", "crypto"]);
+    assert.deepEqual(globSync("src/runtime/edge/*", { cwd: root }), [
+      join("src", "runtime", "edge", "viewer-request.js"),
+    ]);
+  });
+
+  it("src/cdk/edge.ts imports nothing from src/runtime/", () => {
+    const file = join(cdkDir, "edge.ts");
+    const found = specifiers(readFileSync(file, "utf8")).filter(
+      (spec) => targetDir(file, spec) === "runtime",
+    );
+    assert.deepEqual(found, []);
+  });
+
   it("src/cdk/ may use aws-cdk-lib but not import src/runtime/", () => {
     const file = join(src, "cdk", "a.ts");
     const source = [

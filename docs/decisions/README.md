@@ -81,3 +81,13 @@ One short file per decision, numbered in order. Status is **Accepted** (in effec
 | [0075](0075-examples-personal.md) | `examples/personal`: stages, DNS stack, strong cross-region references (experimental; `weak` rejected), owners from the environment, source-condition synth, snapshot | Accepted |
 | [0076](0076-smoke-and-deploy-guide.md) | Smoke and retention scripts, CloudShell deploy guide, and the runtime SDK log line (V2 residual) | Accepted |
 | [0077](0077-version-from-tags.md) | Version releases from git tags and Conventional Commits | Accepted |
+| [0078](0078-session-cookie-and-keys.md) | Session cookie format, keys and shared test vectors | Accepted |
+| [0079](0079-session-key-provisioning.md) | Session-key provisioning custom resource and rotation; the session-keys bundle as a scoped exception to 0068 | Accepted |
+| [0080](0080-edge-viewer-request-function.md) | Edge viewer-request function: host rules, session check, login passthrough, cookies stripped, `x-artifact-host` | Accepted |
+| [0081](0081-login-oidc-pkce.md) | Login: OIDC code + PKCE, transaction cookie, return validation and the login cache behaviour | Accepted |
+| [0082](0082-viewing-lambda.md) | Viewing Lambda: host from `x-artifact-host`, cookie filtering, Cache-Control by class, path mode off, inert reload client, read-only role | Accepted |
+| [0083](0083-distribution-and-live-update.md) | Distribution, cache and origin request policies, DNS records and the live update of `prod` (nothing replaced) | Accepted |
+| [0084](0084-cognito-login-and-owners.md) | Cognito app client, managed login and owner users: public code-flow client, prefix derivation, branding, owners by hashed ids, pool untouched | Accepted |
+| [0085](0085-construct-api-m10.md) | Construct API for M10: the us-east-1 certificate rule, literal view domain, `viewing` props, outputs, tarball app in us-east-1, 2.0.0 | Accepted |
+| [0086](0086-m10-smoke-latency-guide.md) | M10 smoke checks S20–S41, the three-phase latency script and the CloudShell guide steps (j)–(o) | Accepted |
+| [0087](0087-serving-latency-draft.md) | Serving latency: Lambda origin or KVS fallback (awaiting the owner's M10 numbers; no decision yet) | Draft |
