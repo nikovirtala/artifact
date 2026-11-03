@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Questions and ideas
+    url: https://github.com/nikovirtala/artifact/discussions
+    about: Ask questions and discuss ideas in GitHub Discussions (if enabled for this repository).
+  - name: Report a security vulnerability
+    url: https://github.com/nikovirtala/artifact/blob/main/SECURITY.md
+    about: Please report security issues privately. See the security policy.
