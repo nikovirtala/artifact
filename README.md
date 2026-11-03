@@ -4,6 +4,8 @@ Local server that hosts HTML artifacts at stable URLs, keeps every publish as an
 
 **Status: M5 (CLI + polish): v1 complete, pending the owner's acceptance.** `artifact serve` serves artifacts, a gallery, the JSON API and an MCP endpoint for agents, opens new artifacts in the browser, and open tabs reload when an artifact is republished. The client commands publish, list, read, open, roll back and delete artifacts, `artifact mcp` bridges stdio MCP clients, and `artifact init` writes the agent instructions.
 
+**When not to use this.** This is a local, single-user server. It has no multi-user auth, sharing or permissions, no in-browser editing, and it does not build or bundle artifacts: it hosts the files it is given, as is. If you need shared or multi-user hosting, reach for a hosted artifact tool such as claude.ai artifacts instead.
+
 ## Quick start
 
 Requires Node 24.
@@ -14,7 +16,7 @@ claude mcp add --scope user --transport http artifacts http://localhost:4400/mcp
 npx @nikovirtala/artifact init --global
 ```
 
-The second line connects Claude Code once per machine. The third writes the agent instructions to `~/.claude/CLAUDE.md` (see [MCP](#mcp-agents) for why they are needed). Then ask Claude for an HTML page: it publishes here and the page opens in your browser.
+The second line connects Claude Code once per machine. The third writes the agent instructions to `~/.claude/CLAUDE.md` (see [MCP](#mcp-agents) for why they are needed). Then ask Claude for an HTML page: it publishes here and the page opens in your browser. Ask for a change and the agent republishes to the same id, so the open tab reloads on its own.
 
 From a clone:
 
@@ -153,4 +155,4 @@ Every push to `main` with `feat`, `fix`, `perf` or breaking commits publishes th
 
 ## License
 
-[MIT](LICENSE)
+Licensed under the [MIT](LICENSE) license (SPDX: `MIT`).
