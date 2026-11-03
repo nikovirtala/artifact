@@ -1,5 +1,24 @@
 # AGENTS.md
 
+## Build, test and lint
+
+These are the single source of commands; there is no Makefile or justfile.
+
+- Prerequisites: Node 24 (pinned in `mise.toml`, and `actions/setup-node` node 24 in CI) and pnpm from the `packageManager` field (`pnpm@12.14.0`, via corepack).
+- `pnpm install` - install dependencies.
+- `pnpm check` - the full gate: `tsc` typecheck + `biome` lint + `pnpm bundle` + `node:test` + `pnpm --filter aws check` + `pnpm --filter artifact-personal check`.
+- `pnpm test` - run the `node:test` suite (`node --test "test/**/*.test.ts"`).
+- `pnpm lint` / `pnpm format` - biome check / biome check --write.
+- `pnpm build` - emit `dist/`.
+- `node src/cli/main.ts --help` / `node src/cli/main.ts serve` - run the TypeScript CLI directly, no build step.
+
+## Conventions and boundaries
+
+- Tests run `.ts` files directly through `node:test`; there is no transpile step.
+- `src/core/` must not import transports or storage. The boundary is enforced by a test, see [docs/decisions/0004-core-import-boundary.md](docs/decisions/0004-core-import-boundary.md).
+- The README is coupled to `src/cli/snippet.ts` through `test/cli/snippet.test.ts`. When editing the README, keep the agent-snippet strings byte-identical or that test fails.
+- `docs`, `chore`, `refactor` and similar commits do not trigger a release; only `feat`, `fix`, `perf` and breaking changes do, per [RELEASING.md](RELEASING.md).
+
 ## Git history
 
 Linear history is required.
