@@ -138,10 +138,10 @@ How it works: each served HTML page carries `<script src="/__artifact/reload.js"
 
 ## Development
 
-Requires [mise](https://mise.jdx.dev) (pins Node 24 and pnpm via `mise.toml`).
+Needs Node 24 and pnpm. [`mise.toml`](mise.toml) pins both, so `mise install` sets them up if you use [mise](https://mise.jdx.dev); otherwise bring your own Node 24 and let Corepack provide pnpm from `package.json` (`corepack pnpm ...`), the same combination CI runs. See [CONTRIBUTING.md](CONTRIBUTING.md) for the full setup.
 
 ```sh
-mise install
+mise install                  # optional: install the pinned Node 24 and pnpm
 pnpm install
 pnpm check                    # typecheck (tsc 7) + lint (biome) + test (node:test)
 node src/cli/main.ts --help   # runs TypeScript directly, no build step
