@@ -1,0 +1,10 @@
+cff-version: 1.2.0
+message: If you use artifact, please cite it using these metadata.
+title: artifact
+type: software
+authors:
+  - family-names: Virtala
+    given-names: Niko
+repository-code: "https://github.com/nikovirtala/artifact"
+url: "https://github.com/nikovirtala/artifact"
+license: MIT
