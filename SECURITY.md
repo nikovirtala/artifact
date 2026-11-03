@@ -9,9 +9,7 @@ This project is pre-1.0. Releases are published to npm as `@nikovirtala/artifact
 Please report security issues privately rather than opening a public issue.
 
 - Preferred: use GitHub's private vulnerability reporting through the repository's [Security Advisories](https://github.com/nikovirtala/artifact/security/advisories/new). This keeps the report private between you and the maintainer until a fix is ready.
-- Alternatively, contact the maintainer directly:
-  <!-- TODO(maintainer): add a security contact email -->
-  **TODO: add security contact.**
+- Alternatively, contact the maintainer directly at [niko.virtala@hey.com](mailto:niko.virtala@hey.com).
 
 Include the affected version, the environment (OS and Node version), steps to reproduce, and the impact you observed.
 
